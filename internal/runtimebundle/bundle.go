@@ -2,7 +2,6 @@ package runtimebundle
 
 import (
 	"crypto/sha256"
-	"embed"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -15,9 +14,6 @@ import (
 	"strings"
 	"sync"
 )
-
-//go:embed all:assets
-var assets embed.FS
 
 type Paths struct {
 	Root         string
@@ -47,7 +43,10 @@ func (r *Resolver) Resolve() (Paths, error) {
 }
 
 func (r *Resolver) resolve() (Paths, error) {
-	if r.explicitBash != "" {
+	if runtime.GOOS == "windows" && runtime.GOARCH != "amd64" {
+		return Paths{}, fmt.Errorf("Windows %s is not supported; only windows/amd64 is supported", runtime.GOARCH)
+	}
+	if r.explicitBash != "" || r.explicitBusy != "" {
 		return resolveExplicit(r.explicitBash, r.explicitBusy)
 	}
 	if runtime.GOOS != "windows" {
@@ -61,12 +60,15 @@ func (r *Resolver) resolve() (Paths, error) {
 }
 
 func resolveExplicit(bashPath, busyPath string) (Paths, error) {
-	bashPath, err := filepath.Abs(bashPath)
-	if err != nil {
-		return Paths{}, fmt.Errorf("resolve bash path: %w", err)
-	}
-	if err := requireFile(bashPath); err != nil {
-		return Paths{}, err
+	var err error
+	if bashPath != "" {
+		bashPath, err = filepath.Abs(bashPath)
+		if err != nil {
+			return Paths{}, fmt.Errorf("resolve bash path: %w", err)
+		}
+		if err := requireFile(bashPath); err != nil {
+			return Paths{}, err
+		}
 	}
 	if busyPath != "" {
 		busyPath, err = filepath.Abs(busyPath)
@@ -77,7 +79,18 @@ func resolveExplicit(bashPath, busyPath string) (Paths, error) {
 			return Paths{}, err
 		}
 	}
-	return Paths{Root: runtimeRootFromBash(bashPath), Bash: bashPath, BusyBox: busyPath, ShellProfile: "explicit-bash"}, nil
+	if bashPath == "" && busyPath == "" {
+		return Paths{}, errors.New("a Bash or BusyBox executable is required")
+	}
+	shellProfile := "explicit-bash"
+	runtimeRoot := ""
+	if bashPath != "" {
+		runtimeRoot = runtimeRootFromBash(bashPath)
+	}
+	if busyPath != "" {
+		shellProfile = "busybox-sh"
+	}
+	return Paths{Root: runtimeRoot, Bash: bashPath, BusyBox: busyPath, ShellProfile: shellProfile}, nil
 }
 
 func runtimeRootFromBash(bashPath string) string {
@@ -121,15 +134,22 @@ func installEmbedded(baseDir string) (Paths, error) {
 	if err := ensureInstalled(target, archDir, files); err != nil {
 		return Paths{}, err
 	}
-	bashPath := filepath.Join(target, "usr", "bin", "bash.exe")
-	if err := requireFile(bashPath); err != nil {
-		return Paths{}, fmt.Errorf("embedded runtime is incomplete: %w", err)
+	if err := ensureRuntimeDirectories(target); err != nil {
+		return Paths{}, err
 	}
 	busyPath := filepath.Join(target, "bin", "busybox.exe")
 	if err := requireFile(busyPath); err != nil {
-		busyPath = ""
+		return Paths{}, fmt.Errorf("embedded runtime is incomplete: %w", err)
 	}
-	return Paths{Root: target, Bash: bashPath, BusyBox: busyPath, ShellProfile: "git-bash-busybox"}, nil
+	return Paths{Root: target, BusyBox: busyPath, ShellProfile: "busybox-sh"}, nil
+}
+
+func ensureRuntimeDirectories(target string) error {
+	tmpDir := filepath.Join(target, "tmp")
+	if err := os.MkdirAll(tmpDir, 0700); err != nil {
+		return fmt.Errorf("create runtime temporary directory: %w", err)
+	}
+	return nil
 }
 
 func collectFiles(root string) ([]string, error) {
@@ -138,7 +158,7 @@ func collectFiles(root string) ([]string, error) {
 		if walkErr != nil {
 			return walkErr
 		}
-		if entry.IsDir() || path.Base(name) == "_placeholder" {
+		if entry.IsDir() || ignoredAsset(path.Base(name)) {
 			return nil
 		}
 		files = append(files, name)
@@ -149,6 +169,10 @@ func collectFiles(root string) ([]string, error) {
 	}
 	sort.Strings(files)
 	return files, nil
+}
+
+func ignoredAsset(name string) bool {
+	return name == "_placeholder" || name == ".DS_Store"
 }
 
 func bundleHash(files []string) (string, error) {

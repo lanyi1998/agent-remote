@@ -266,14 +266,14 @@ func (s *session) close() {
 }
 
 func ShellProfile(bashPath, busyBoxPath string) string {
+	if busyBoxPath != "" {
+		return "busybox-sh"
+	}
 	if bashPath != "" {
-		if busyBoxPath != "" {
-			return "explicit-bash-busybox"
-		}
 		return "explicit-bash"
 	}
 	if runtime.GOOS == "windows" {
-		return "git-bash-busybox"
+		return "busybox-sh"
 	}
 	return "system-bash"
 }

@@ -181,7 +181,8 @@ Pi -> HTTP -> VPS Gateway -> WebSocket -> office-linux Worker
 
 连接信息会保存到 `~/.pi/agent/remote.json`，包括 Gateway URL、目标、备注和令牌，
 方便 Pi 重启后使用 `/remote list` 查看并复用其他连接。Pi 启动时默认使用本机工具，
-只有执行 `/remote connect` 或从 `/remote list` 选择连接后才会切入远程。令牌文件会
+只有执行 `/remote connect` 或从 `/remote list` 选择连接后才会切入远程；同一个 Pi
+进程内执行 `/new` 会继续使用当前远程目标。令牌文件会
 以仅当前用户可读写的权限保存；也可以用 `--pi-remote-token` 覆盖保存的令牌。
 
 ### 7. 快速检查
@@ -214,20 +215,16 @@ Before building, place the external files under the architecture directory:
 ```text
 internal/runtimebundle/assets/
 └── windows_amd64/
-    ├── usr/bin/bash.exe
-    ├── usr/bin/sh.exe
-    ├── usr/bin/msys-2.0.dll
     └── bin/busybox.exe
 ```
 
-Use `windows_386` for a 32-bit build. Additional Git Bash DLLs or configuration
-files can be added with their normal relative paths. Everything in the selected
-architecture directory, except `_placeholder`, is embedded in `pi-remote.exe`.
+The Windows build currently supports amd64 only. Everything in `windows_amd64`,
+except `_placeholder`, is embedded in `pi-remote.exe`.
 
-At first Bash execution the files are extracted to a content-addressed directory
+At first shell execution the files are extracted to a content-addressed directory
 under `%LOCALAPPDATA%/PiRemote/runtime`. Every file is verified against the
-embedded bytes. Agent scripts are never written to a temporary `.sh` file; they
-are sent to Bash over stdin.
+embedded bytes. Agent scripts are never written to a temporary file; they are
+sent to BusyBox `sh` over stdin.
 
 For development, skip embedding and point to an existing runtime:
 
@@ -235,7 +232,6 @@ For development, skip embedding and point to an existing runtime:
 pi-remote worker \
   --server wss://gateway.example \
   --root C:/work \
-  --bash-path C:/PortableGit/usr/bin/bash.exe \
   --busybox-path C:/tools/busybox.exe
 ```
 
@@ -246,10 +242,9 @@ Use Go 1.20.14 for the Windows 7 binary:
 ```sh
 go mod download
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -o bin/pi-remote-windows-amd64.exe ./cmd/pi-remote
-CGO_ENABLED=0 GOOS=windows GOARCH=386 go build -trimpath -o bin/pi-remote-windows-386.exe ./cmd/pi-remote
 ```
 
-The 32-bit and 64-bit runtime files must match the target architecture.
+The embedded runtime and the Windows binary are amd64-only.
 
 ## Run
 
@@ -332,9 +327,10 @@ See [`pi-extension/README.md`](pi-extension/README.md) for setup examples.
 
 ## Windows shell behavior
 
-The worker starts the real Bash with `--noprofile --norc -s`. If BusyBox is
-present, a generated in-memory prologue maps common tools such as `grep`, `sed`,
-`awk`, `find`, `tar`, and `base64` to BusyBox applets. It never silently switches
+When the embedded BusyBox runtime is available, the worker starts
+`busybox.exe sh -s` directly. Commands such as `ls`, `id`, `whoami`, `grep`, and
+`find` are handled by BusyBox without generating applet link files. This uses
+BusyBox's `ash` shell syntax rather than Bash syntax. It never silently switches
 to CMD or PowerShell.
 
 Timeout and cancellation terminate the Windows Job Object when available, which

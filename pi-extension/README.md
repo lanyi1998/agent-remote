@@ -96,7 +96,8 @@ Gateway URL, target, note, and bearer token. `/remote list` checks every saved
 connection and lets you select an online one. The file is created with mode
 `0600`; the token can still be overridden by `--pi-remote-token`. Pi starts with
 its local tools; use `/remote connect` or select a connection from `/remote list`
-to enter remote mode. Use `/remote remove` to delete a saved connection;
+to enter remote mode. Starting `/new` within the same Pi process keeps the
+current remote target. Use `/remote remove` to delete a saved connection;
 removing the active connection also switches Pi back to its local tools.
 
 Switching waits until the current agent turn is idle. The extension then:

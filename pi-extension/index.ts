@@ -231,13 +231,7 @@ export default function piRemoteExtension(pi: ExtensionAPI) {
 	const localEdit = createEditTool(localCwd);
 	const localWrite = createWriteTool(localCwd);
 
-	let state: RuntimeState = {
-		enabled: false,
-		url: normalizeGatewayURL(process.env.PI_REMOTE_URL ?? "http://127.0.0.1:8787"),
-		target: "off",
-		token: "",
-		targetNotes: {},
-	};
+	let state: RuntimeState = createInitialState();
 	let remoteAutocompleteRegistered = false;
 
 	const client = (snapshot = state) => new RPCClient(snapshot.url, snapshot.token);
@@ -339,12 +333,17 @@ export default function piRemoteExtension(pi: ExtensionAPI) {
 		return { systemPrompt: `${event.systemPrompt}\n\n${targetPrompt(state, localCwd)}` };
 	});
 
-	pi.on("session_start", async (_event, ctx) => {
+	pi.on("session_start", async (event, ctx) => {
 		registerRemoteAutocomplete(ctx);
-		try {
-			await clearActiveRemoteConnection();
-		} catch (error) {
-			ctx.ui.notify(`Unable to reset saved remote connection state: ${errorMessage(error)}`, "warning");
+		if (event.reason === "startup") {
+			state = createInitialState();
+			try {
+				await clearActiveRemoteConnection();
+			} catch (error) {
+				ctx.ui.notify(`Unable to reset saved remote connection state: ${errorMessage(error)}`, "warning");
+			}
+		} else {
+			state = await restoreActiveRemoteConnection(ctx, state);
 		}
 		const flagURL = pi.getFlag("pi-remote-url") as string | undefined;
 		const flagToken = pi.getFlag("pi-remote-token") as string | undefined;
@@ -700,6 +699,27 @@ function normalizeGatewayURL(value: string): string {
 	return parsed.toString().replace(/\/$/, "");
 }
 
+function createInitialState(): RuntimeState {
+	return {
+		enabled: false,
+		url: normalizeGatewayURL(process.env.PI_REMOTE_URL ?? "http://127.0.0.1:8787"),
+		target: "off",
+		token: "",
+		targetNotes: {},
+	};
+}
+
+async function restoreActiveRemoteConnection(ctx: ExtensionContext, fallback: RuntimeState): Promise<RuntimeState> {
+	try {
+		const store = await loadRemoteStore();
+		const connection = findActiveRemoteConnection(store);
+		return connection ? stateForRemoteConnection(fallback, connection, false) : fallback;
+	} catch (error) {
+		ctx.ui.notify(`Unable to restore active remote connection: ${errorMessage(error)}`, "warning");
+		return fallback;
+	}
+}
+
 function stateForRemoteConnection(
 	state: RuntimeState,
 	connection: RemoteConnection,
@@ -811,6 +831,11 @@ function parseRemoteConnection(value: unknown, index: number): RemoteConnection 
 
 function emptyRemoteStore(): RemoteStore {
 	return { version: 1, connections: [] };
+}
+
+function findActiveRemoteConnection(store: RemoteStore): RemoteConnection | undefined {
+	if (!store.active) return undefined;
+	return store.connections.find((connection) => connection.id === store.active);
 }
 
 function formatSavedConnection(connection: RemoteConnection): string {
@@ -987,7 +1012,7 @@ function targetPrompt(state: RuntimeState, localCwd: string): string {
 		`- Shell profile: ${info?.shell_profile ?? "unknown"}`,
 		"- The read, bash, edit, and write tools are intercepted and operate on this target, not on the Pi host.",
 		"- Resolve relative paths against the target working directory. Do not rewrite them using the Pi host working directory.",
-		"- bash means the reported Bash profile. Never silently mix CMD or PowerShell syntax.",
+		"- Treat the reported shell profile as authoritative: busybox-sh means BusyBox ash/POSIX syntax, while explicit-bash or system-bash means Bash. Never silently mix CMD or PowerShell syntax.",
 		"- If the target is offline, stop and report it; never fall back to local execution.",
 	].join("\n");
 }

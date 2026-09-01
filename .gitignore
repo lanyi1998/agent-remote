@@ -5,6 +5,6 @@
 *.exe
 *.test
 internal/runtimebundle/assets/windows_amd64/*
-internal/runtimebundle/assets/windows_386/*
 !internal/runtimebundle/assets/windows_amd64/_placeholder
-!internal/runtimebundle/assets/windows_386/_placeholder
+!internal/runtimebundle/assets/windows_amd64/bin/
+!internal/runtimebundle/assets/windows_amd64/bin/busybox.exe

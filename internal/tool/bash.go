@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"pi-remote/internal/runtimebundle"
 )
 
 type bashInput struct {
@@ -48,12 +50,15 @@ func (s *Service) executeBash(parent context.Context, rawInput []byte, onChunk C
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	collector := newOutputCollector(s.maxOutputBytes, onChunk)
-	command := exec.Command(runtimePaths.Bash, "--noprofile", "--norc", "-s")
+	command, err := newShellCommand(runtimePaths)
+	if err != nil {
+		return bashResult{}, WrapError("shell_unavailable", "select shell runtime", err)
+	}
 	command.Dir = s.paths.Root()
-	command.Env = shellEnvironment(runtimePaths.Root, runtimePaths.BusyBox, s.paths.Root())
+	command.Env = shellEnvironment(runtimePaths.Root, s.paths.Root())
 	command.Stdout = collector
 	command.Stderr = collector
-	script := buildScript(input.Command, runtimePaths.BusyBox != "")
+	script := buildScript(input.Command)
 	exitCode, runErr := runManaged(ctx, command, strings.NewReader(script))
 	output, encoded, truncated := collector.Snapshot()
 	result := bashResult{
@@ -81,6 +86,16 @@ func (s *Service) executeBash(parent context.Context, rawInput []byte, onChunk C
 	return result, nil
 }
 
+func newShellCommand(paths runtimebundle.Paths) (*exec.Cmd, error) {
+	if runtime.GOOS == "windows" && paths.BusyBox != "" {
+		return exec.Command(paths.BusyBox, "sh", "-s"), nil
+	}
+	if paths.Bash != "" {
+		return exec.Command(paths.Bash, "--noprofile", "--norc", "-s"), nil
+	}
+	return nil, errors.New("no shell runtime is configured")
+}
+
 func (s *Service) bashTimeout(seconds *float64) (time.Duration, error) {
 	value := float64(s.defaultTimeoutSec)
 	if seconds != nil {
@@ -95,20 +110,17 @@ func (s *Service) bashTimeout(seconds *float64) (time.Duration, error) {
 	return time.Duration(value * float64(time.Second)), nil
 }
 
-func shellEnvironment(runtimeRoot, busyBox, workingDirectory string) []string {
+func shellEnvironment(runtimeRoot, workingDirectory string) []string {
 	environment := append([]string(nil), os.Environ()...)
 	environment = setEnvironment(environment, "PWD", shellPath(workingDirectory))
 	if runtimeRoot != "" {
 		pathValue := strings.Join([]string{
-			filepath.Join(runtimeRoot, "usr", "bin"),
 			filepath.Join(runtimeRoot, "bin"),
+			filepath.Join(runtimeRoot, "usr", "bin"),
 			filepath.Join(runtimeRoot, "mingw64", "bin"),
 			os.Getenv("PATH"),
 		}, string(os.PathListSeparator))
 		environment = setEnvironment(environment, "PATH", pathValue)
-	}
-	if busyBox != "" {
-		environment = setEnvironment(environment, "PI_BUSYBOX", shellPath(busyBox))
 	}
 	if runtime.GOOS == "windows" {
 		environment = setEnvironment(environment, "MSYSTEM", msystemForArchitecture())
@@ -129,9 +141,6 @@ func setEnvironment(environment []string, key, value string) []string {
 }
 
 func msystemForArchitecture() string {
-	if runtime.GOARCH == "386" {
-		return "MINGW32"
-	}
 	return "MINGW64"
 }
 
@@ -139,17 +148,13 @@ func shellPath(name string) string {
 	value := filepath.ToSlash(name)
 	if runtime.GOOS == "windows" && len(value) >= 3 && value[1] == ':' && value[2] == '/' {
 		drive := strings.ToLower(value[:1])
-		return "/" + drive + value[2:]
+		return "/cygdrive/" + drive + value[2:]
 	}
 	return value
 }
 
-func buildScript(command string, withBusyBox bool) string {
+func buildScript(command string) string {
 	var script strings.Builder
-	if withBusyBox {
-		script.WriteString(busyBoxPrologue)
-		script.WriteByte('\n')
-	}
 	script.WriteString(command)
 	if !strings.HasSuffix(command, "\n") {
 		script.WriteByte('\n')
@@ -157,67 +162,30 @@ func buildScript(command string, withBusyBox bool) string {
 	return script.String()
 }
 
-const busyBoxPrologue = `
-if [ -n "${PI_BUSYBOX:-}" ]; then
-  awk()      { "$PI_BUSYBOX" awk "$@"; }
-  base64()   { "$PI_BUSYBOX" base64 "$@"; }
-  basename() { "$PI_BUSYBOX" basename "$@"; }
-  cat()      { "$PI_BUSYBOX" cat "$@"; }
-  cp()       { "$PI_BUSYBOX" cp "$@"; }
-  cut()      { "$PI_BUSYBOX" cut "$@"; }
-  date()     { "$PI_BUSYBOX" date "$@"; }
-  diff()     { "$PI_BUSYBOX" diff "$@"; }
-  dirname()  { "$PI_BUSYBOX" dirname "$@"; }
-  find()     { "$PI_BUSYBOX" find "$@"; }
-  grep()     { "$PI_BUSYBOX" grep "$@"; }
-  gzip()     { "$PI_BUSYBOX" gzip "$@"; }
-  gunzip()   { "$PI_BUSYBOX" gunzip "$@"; }
-  head()     { "$PI_BUSYBOX" head "$@"; }
-  ls()       { "$PI_BUSYBOX" ls "$@"; }
-  md5sum()   { "$PI_BUSYBOX" md5sum "$@"; }
-  mkdir()    { "$PI_BUSYBOX" mkdir "$@"; }
-  mv()       { "$PI_BUSYBOX" mv "$@"; }
-  patch()    { "$PI_BUSYBOX" patch "$@"; }
-  readlink() { "$PI_BUSYBOX" readlink "$@"; }
-  realpath() { "$PI_BUSYBOX" realpath "$@"; }
-  rm()       { "$PI_BUSYBOX" rm "$@"; }
-  rmdir()    { "$PI_BUSYBOX" rmdir "$@"; }
-  sed()      { "$PI_BUSYBOX" sed "$@"; }
-  sha256sum(){ "$PI_BUSYBOX" sha256sum "$@"; }
-  sleep()    { "$PI_BUSYBOX" sleep "$@"; }
-  sort()     { "$PI_BUSYBOX" sort "$@"; }
-  stat()     { "$PI_BUSYBOX" stat "$@"; }
-  tail()     { "$PI_BUSYBOX" tail "$@"; }
-  tar()      { "$PI_BUSYBOX" tar "$@"; }
-  tee()      { "$PI_BUSYBOX" tee "$@"; }
-  touch()    { "$PI_BUSYBOX" touch "$@"; }
-  tr()       { "$PI_BUSYBOX" tr "$@"; }
-  uname()    { "$PI_BUSYBOX" uname "$@"; }
-  uniq()     { "$PI_BUSYBOX" uniq "$@"; }
-  unzip()    { "$PI_BUSYBOX" unzip "$@"; }
-  wc()       { "$PI_BUSYBOX" wc "$@"; }
-  which()    { "$PI_BUSYBOX" which "$@"; }
-  xargs()    { "$PI_BUSYBOX" xargs "$@"; }
-  export -f awk base64 basename cat cp cut date diff dirname find grep gzip gunzip
-  export -f head ls md5sum mkdir mv patch readlink realpath rm rmdir sed sha256sum
-  export -f sleep sort stat tail tar tee touch tr uname uniq unzip wc which xargs
-fi`
-
 type outputCollector struct {
 	mu       sync.Mutex
 	data     []byte
 	maxBytes int
 	total    int64
 	onChunk  ChunkWriter
+	decoder  outputDecoder
 }
 
 func newOutputCollector(maxBytes int, onChunk ChunkWriter) *outputCollector {
-	return &outputCollector{maxBytes: maxBytes, onChunk: onChunk}
+	return &outputCollector{maxBytes: maxBytes, onChunk: onChunk, decoder: newOutputDecoder()}
 }
 
 func (w *outputCollector) Write(data []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	w.appendDecoded(w.decoder.Decode(data))
+	return len(data), nil
+}
+
+func (w *outputCollector) appendDecoded(data []byte) {
+	if len(data) == 0 {
+		return
+	}
 	if w.onChunk != nil {
 		copyOfData := append([]byte(nil), data...)
 		w.onChunk(copyOfData)
@@ -229,12 +197,12 @@ func (w *outputCollector) Write(data []byte) (int, error) {
 		copy(w.data, w.data[overflow:])
 		w.data = w.data[:w.maxBytes]
 	}
-	return len(data), nil
 }
 
 func (w *outputCollector) Snapshot() (string, string, bool) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	w.appendDecoded(w.decoder.Flush())
 	data := append([]byte(nil), w.data...)
 	truncated := w.total > int64(len(data))
 	output := string(data)
