@@ -1,0 +1,201 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"runtime"
+	"syscall"
+	"time"
+
+	"pi-remote/internal/gateway"
+	"pi-remote/internal/protocol"
+	"pi-remote/internal/tool"
+	"pi-remote/internal/worker"
+)
+
+const version = "0.1.0"
+
+type toolFlags struct {
+	root             string
+	allowOutsideRoot bool
+	runtimeDir       string
+	bashPath         string
+	busyBoxPath      string
+}
+
+func main() {
+	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
+	if err := run(os.Args[1:]); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run(arguments []string) error {
+	if len(arguments) == 0 {
+		printUsage()
+		return errors.New("a subcommand is required")
+	}
+	switch arguments[0] {
+	case "serve":
+		return runServer(arguments[1:])
+	case "worker":
+		return runWorker(arguments[1:])
+	case "version":
+		fmt.Println(version)
+		return nil
+	case "help", "-h", "--help":
+		printUsage()
+		return nil
+	default:
+		printUsage()
+		return fmt.Errorf("unknown subcommand %q", arguments[0])
+	}
+}
+
+func runServer(arguments []string) error {
+	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
+	listen := flags.String("listen", "0.0.0.0:8787", "HTTP listen address")
+	token := flags.String("token", os.Getenv("PI_REMOTE_TOKEN"), "shared bearer token (or PI_REMOTE_TOKEN)")
+	tlsCert := flags.String("tls-cert", "", "TLS certificate file")
+	tlsKey := flags.String("tls-key", "", "TLS private key file")
+	toolOptions := addToolFlags(flags)
+	if err := flags.Parse(arguments); err != nil {
+		return err
+	}
+	if err := requireToken(*token); err != nil {
+		return err
+	}
+	tools, err := createToolService(toolOptions)
+	if err != nil {
+		return err
+	}
+	hostname, _ := os.Hostname()
+	server := gateway.New(gateway.Config{
+		ListenAddress: *listen,
+		Token:         *token,
+		TLSCert:       *tlsCert,
+		TLSKey:        *tlsKey,
+		LocalTools:    tools,
+		LocalInfo: protocol.Hello{
+			ProtocolVersion: protocol.Version,
+			WorkerID:        "local",
+			OS:              runtime.GOOS,
+			Arch:            runtime.GOARCH,
+			Hostname:        hostname,
+			Root:            tools.Root(),
+			Tools:           []string{"read", "bash", "edit", "write"},
+			ShellProfile:    worker.ShellProfile(toolOptions.bashPath, toolOptions.busyBoxPath),
+		},
+	})
+	ctx, stop := signalContext()
+	defer stop()
+	serverError := make(chan error, 1)
+	go func() {
+		log.Printf("gateway listening on %s; local workspace %s", *listen, tools.Root())
+		serverError <- server.ListenAndServe()
+	}()
+	select {
+	case err := <-serverError:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case <-ctx.Done():
+		shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return server.Shutdown(shutdownContext)
+	}
+}
+
+func runWorker(arguments []string) error {
+	flags := flag.NewFlagSet("worker", flag.ContinueOnError)
+	serverURL := flags.String("server", "", "gateway URL, for example wss://gateway.example")
+	token := flags.String("token", os.Getenv("PI_REMOTE_TOKEN"), "shared bearer token (or PI_REMOTE_TOKEN)")
+	workerID := flags.String("id", "", "stable worker id (defaults to hostname)")
+	toolOptions := addToolFlags(flags)
+	if err := flags.Parse(arguments); err != nil {
+		return err
+	}
+	if *serverURL == "" {
+		return errors.New("--server is required")
+	}
+	if err := requireToken(*token); err != nil {
+		return err
+	}
+	tools, err := createToolService(toolOptions)
+	if err != nil {
+		return err
+	}
+	hostname, _ := os.Hostname()
+	if *workerID == "" {
+		*workerID = worker.DefaultWorkerID(hostname)
+	}
+	client := worker.New(worker.Config{
+		ServerURL:    *serverURL,
+		Token:        *token,
+		WorkerID:     *workerID,
+		Hostname:     hostname,
+		ShellProfile: worker.ShellProfile(toolOptions.bashPath, toolOptions.busyBoxPath),
+		Tools:        tools,
+	})
+	ctx, stop := signalContext()
+	defer stop()
+	err = client.Run(ctx)
+	if errors.Is(err, context.Canceled) {
+		return nil
+	}
+	return err
+}
+
+func addToolFlags(flags *flag.FlagSet) *toolFlags {
+	options := &toolFlags{}
+	flags.StringVar(&options.root, "root", ".", "workspace root")
+	flags.BoolVar(&options.allowOutsideRoot, "allow-outside-root", false, "allow file tools to access paths outside the workspace")
+	flags.StringVar(&options.runtimeDir, "runtime-dir", "", "base directory used to extract the embedded Windows runtime")
+	flags.StringVar(&options.bashPath, "bash-path", "", "use an external bash executable instead of the embedded runtime")
+	flags.StringVar(&options.busyBoxPath, "busybox-path", "", "optional external BusyBox executable")
+	return options
+}
+
+func createToolService(options *toolFlags) (*tool.Service, error) {
+	root, err := filepath.Abs(options.root)
+	if err != nil {
+		return nil, fmt.Errorf("resolve root: %w", err)
+	}
+	return tool.NewService(tool.ServiceConfig{
+		Root:             root,
+		AllowOutsideRoot: options.allowOutsideRoot,
+		RuntimeDir:       options.runtimeDir,
+		BashPath:         options.bashPath,
+		BusyBoxPath:      options.busyBoxPath,
+	})
+}
+
+func requireToken(token string) error {
+	if len(token) < 16 {
+		return errors.New("a shared token of at least 16 characters is required")
+	}
+	return nil
+}
+
+func signalContext() (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+}
+
+func printUsage() {
+	fmt.Println(`pi-remote - reverse-connected RPC execution for Pi agents
+
+Usage:
+  pi-remote serve [flags]
+  pi-remote worker [flags]
+  pi-remote version
+
+Run "pi-remote serve -h" or "pi-remote worker -h" for flags.`)
+}

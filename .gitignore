@@ -1,0 +1,10 @@
+/bin/
+/\.idea/
+/pi-remote-linux-amd64
+*.DS_Store
+*.exe
+*.test
+internal/runtimebundle/assets/windows_amd64/*
+internal/runtimebundle/assets/windows_386/*
+!internal/runtimebundle/assets/windows_amd64/_placeholder
+!internal/runtimebundle/assets/windows_386/_placeholder
