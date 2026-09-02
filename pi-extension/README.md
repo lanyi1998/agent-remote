@@ -11,6 +11,8 @@ pi -e /absolute/path/to/pi-remote/pi-extension/index.ts
 ```
 
 Pi 侧的令牌通过 `/remote connect` 输入，不从环境变量读取。
+使用 `http://` 或 `ws://` 时，扩展会用 Token 进行 HMAC 认证，并使用
+AES-256-GCM 加密请求和响应；原始 Token 不会放入网络请求。
 
 Install it permanently with Pi's extension installer if desired:
 
@@ -38,7 +40,8 @@ Then connect inside Pi:
 /remote connect https://remote-machine.example:8787 YOUR_TOKEN my-development-machine
 ```
 
-Use TLS and firewall allowlists when exposing the forward listener.
+TLS remains useful as defense in depth, and firewall allowlists are recommended
+when exposing the forward listener.
 
 ## Reverse connection
 
@@ -92,7 +95,7 @@ A connection without `--worker` defaults to the Gateway machine. Notes are
 stored per saved connection; when omitted, Pi generates a random note automatically.
 
 Successful connections are saved in `~/.pi/agent/remote.json`, including the
-Gateway URL, target, note, and bearer token. `/remote list` checks every saved
+Gateway URL, target, note, and shared token. `/remote list` checks every saved
 connection and lets you select an online one. The file is created with mode
 `0600`; the token can still be overridden by `--pi-remote-token`. Pi starts with
 its local tools; use `/remote connect` or select a connection from `/remote list`

@@ -17,6 +17,7 @@ import (
 
 	"pi-remote/internal/protocol"
 	"pi-remote/internal/tool"
+	"pi-remote/internal/transport"
 )
 
 type Config struct {
@@ -65,8 +66,14 @@ func (c *Client) Run(ctx context.Context) error {
 }
 
 func (c *Client) runSession(ctx context.Context, serverURL string) error {
-	header := http.Header{}
-	header.Set("Authorization", "Bearer "+c.config.Token)
+	parsedURL, err := url.Parse(serverURL)
+	if err != nil {
+		return fmt.Errorf("parse gateway URL: %w", err)
+	}
+	header, err := transport.ClientAuthHeaders(c.config.Token, http.MethodGet, parsedURL.EscapedPath(), nil, time.Now())
+	if err != nil {
+		return err
+	}
 	connection, response, err := websocket.DefaultDialer.DialContext(ctx, serverURL, header)
 	if err != nil {
 		if response != nil {
@@ -74,7 +81,7 @@ func (c *Client) runSession(ctx context.Context, serverURL string) error {
 		}
 		return fmt.Errorf("connect to gateway: %w", err)
 	}
-	session := newSession(connection, c.config.Tools)
+	session := newSession(connection, c.config.Token, c.config.Tools)
 	defer session.close()
 	go func() {
 		select {
@@ -128,6 +135,7 @@ func NormalizeServerURL(value string) (string, error) {
 
 type session struct {
 	connection *websocket.Conn
+	token      string
 	tools      *tool.Service
 	writeMu    sync.Mutex
 	cancelMu   sync.Mutex
@@ -136,10 +144,11 @@ type session struct {
 	closeOnce  sync.Once
 }
 
-func newSession(connection *websocket.Conn, tools *tool.Service) *session {
+func newSession(connection *websocket.Conn, token string, tools *tool.Service) *session {
 	connection.SetReadLimit(72 * 1024 * 1024)
 	return &session{
 		connection: connection,
+		token:      token,
 		tools:      tools,
 		cancels:    make(map[string]context.CancelFunc),
 		closed:     make(chan struct{}),
@@ -148,8 +157,16 @@ func newSession(connection *websocket.Conn, tools *tool.Service) *session {
 
 func (s *session) readLoop(ctx context.Context) error {
 	for {
+		var envelope transport.Envelope
+		if err := s.connection.ReadJSON(&envelope); err != nil {
+			return err
+		}
+		plaintext, err := transport.DecryptEnvelope(s.token, transport.PurposeGatewayToWorker, transport.GatewayToWorkerAAD, envelope)
+		if err != nil {
+			return err
+		}
 		var message protocol.WireMessage
-		if err := s.connection.ReadJSON(&message); err != nil {
+		if err := json.Unmarshal(plaintext, &message); err != nil {
 			return err
 		}
 		switch message.Type {
@@ -249,7 +266,15 @@ func (s *session) writeJSON(message protocol.WireMessage) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	_ = s.connection.SetWriteDeadline(time.Now().Add(15 * time.Second))
-	return s.connection.WriteJSON(message)
+	payload, err := json.Marshal(message)
+	if err != nil {
+		return err
+	}
+	envelope, err := transport.EncryptEnvelope(s.token, transport.PurposeWorkerToGateway, transport.WorkerToGatewayAAD, payload)
+	if err != nil {
+		return err
+	}
+	return s.connection.WriteJSON(envelope)
 }
 
 func (s *session) close() {

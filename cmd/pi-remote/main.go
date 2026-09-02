@@ -62,7 +62,7 @@ func run(arguments []string) error {
 func runServer(arguments []string) error {
 	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
 	listen := flags.String("listen", "0.0.0.0:8787", "HTTP listen address")
-	token := flags.String("token", os.Getenv("PI_REMOTE_TOKEN"), "shared bearer token (or PI_REMOTE_TOKEN)")
+	token := flags.String("token", os.Getenv("PI_REMOTE_TOKEN"), "shared encryption token (or PI_REMOTE_TOKEN)")
 	tlsCert := flags.String("tls-cert", "", "TLS certificate file")
 	tlsKey := flags.String("tls-key", "", "TLS private key file")
 	toolOptions := addToolFlags(flags)
@@ -117,7 +117,7 @@ func runServer(arguments []string) error {
 func runWorker(arguments []string) error {
 	flags := flag.NewFlagSet("worker", flag.ContinueOnError)
 	serverURL := flags.String("server", "", "gateway URL, for example wss://gateway.example")
-	token := flags.String("token", os.Getenv("PI_REMOTE_TOKEN"), "shared bearer token (or PI_REMOTE_TOKEN)")
+	token := flags.String("token", os.Getenv("PI_REMOTE_TOKEN"), "shared encryption token (or PI_REMOTE_TOKEN)")
 	workerID := flags.String("id", "", "stable worker id (defaults to hostname)")
 	toolOptions := addToolFlags(flags)
 	if err := flags.Parse(arguments); err != nil {
@@ -179,8 +179,8 @@ func createToolService(options *toolFlags) (*tool.Service, error) {
 }
 
 func requireToken(token string) error {
-	if len(token) < 16 {
-		return errors.New("a shared token of at least 16 characters is required")
+	if len(token) < 8 {
+		return errors.New("a shared token of at least 8 characters is required")
 	}
 	return nil
 }

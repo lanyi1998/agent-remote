@@ -11,7 +11,14 @@ import {
 	createWriteTool,
 	getAgentDir,
 } from "@earendil-works/pi-coding-agent";
-import { randomUUID } from "node:crypto";
+import {
+	createCipheriv,
+	createDecipheriv,
+	createHash,
+	createHmac,
+	randomBytes,
+	randomUUID,
+} from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { Type } from "typebox";
@@ -138,6 +145,96 @@ class RemoteRPCError extends Error {
 	}
 }
 
+interface SecureEnvelope {
+	v: number;
+	nonce: string;
+	ciphertext: string;
+}
+
+const secureVersion = 1;
+const httpClientPurpose = "http-client";
+const httpServerPurpose = "http-server";
+
+function base64UrlEncode(value: Uint8Array): string {
+	return Buffer.from(value).toString("base64url");
+}
+
+function base64UrlDecode(value: string): Buffer {
+	return Buffer.from(value, "base64url");
+}
+
+function deriveSecureKey(token: string, purpose: string): Buffer {
+	return createHash("sha256")
+		.update(`pi-remote/secure/v1/${purpose}\0`, "utf8")
+		.update(token, "utf8")
+		.digest();
+}
+
+function httpSecureAAD(direction: string, method: string, path: string, requestNonce: string): string {
+	return `http/v1\n${direction}\n${method}\n${path}\n${requestNonce}`;
+}
+
+function encryptSecureEnvelope(token: string, purpose: string, aad: string, plaintext: Uint8Array): string {
+	const nonce = randomBytes(12);
+	const cipher = createCipheriv("aes-256-gcm", deriveSecureKey(token, purpose), nonce);
+	cipher.setAAD(Buffer.from(aad, "utf8"));
+	const ciphertext = Buffer.concat([cipher.update(Buffer.from(plaintext)), cipher.final(), cipher.getAuthTag()]);
+	return JSON.stringify({
+		v: secureVersion,
+		nonce: base64UrlEncode(nonce),
+		ciphertext: base64UrlEncode(ciphertext),
+	} satisfies SecureEnvelope);
+}
+
+function decryptSecureEnvelope(token: string, purpose: string, aad: string, serialized: string): Buffer {
+	let envelope: SecureEnvelope;
+	try {
+		envelope = JSON.parse(serialized) as SecureEnvelope;
+	} catch (error) {
+		throw new Error(`Invalid secure response envelope: ${errorMessage(error)}`);
+	}
+	if (envelope.v !== secureVersion || typeof envelope.nonce !== "string" || typeof envelope.ciphertext !== "string") {
+		throw new Error("Invalid secure response envelope");
+	}
+	const nonce = base64UrlDecode(envelope.nonce);
+	const ciphertext = base64UrlDecode(envelope.ciphertext);
+	if (nonce.length !== 12 || ciphertext.length < 16) throw new Error("Invalid secure response envelope");
+	const decipher = createDecipheriv("aes-256-gcm", deriveSecureKey(token, purpose), nonce);
+	decipher.setAAD(Buffer.from(aad, "utf8"));
+	decipher.setAuthTag(ciphertext.subarray(ciphertext.length - 16));
+	try {
+		return Buffer.concat([
+			decipher.update(ciphertext.subarray(0, ciphertext.length - 16)),
+			decipher.final(),
+		]);
+	} catch {
+		throw new Error("Secure response authentication failed");
+	}
+}
+
+function createRequestAuth(token: string, method: string, path: string, body: Uint8Array, nonce = base64UrlEncode(randomBytes(16))): { nonce: string; headers: Record<string, string> } {
+	const timestamp = Math.floor(Date.now() / 1000).toString();
+	const proof = createHmac("sha256", token)
+		.update(method, "utf8")
+		.update("\n", "utf8")
+		.update(path, "utf8")
+		.update("\n", "utf8")
+		.update(timestamp, "utf8")
+		.update("\n", "utf8")
+		.update(nonce, "utf8")
+		.update("\n", "utf8")
+		.update(base64UrlEncode(body), "utf8")
+		.digest("base64url");
+	return {
+		nonce,
+		headers: {
+			"X-Pi-Remote-Nonce": nonce,
+			"X-Pi-Remote-Timestamp": timestamp,
+			"X-Pi-Remote-Proof": proof,
+		},
+	};
+}
+
 class RPCClient {
 	constructor(
 		private readonly baseURL: string,
@@ -163,16 +260,25 @@ class RPCClient {
 
 	private async request<T>(path: string, init: RequestInit): Promise<T> {
 		if (!this.token) throw new Error("PI remote token is not configured");
-		const response = await fetch(`${this.baseURL}${path}`, {
-			...init,
-			headers: {
-				Authorization: `Bearer ${this.token}`,
-				...(init.headers ?? {}),
-			},
-		});
+		const url = `${this.baseURL}${path}`;
+		const parsedURL = new URL(url);
+		const method = (init.method ?? "GET").toUpperCase();
+		const plaintextBody = typeof init.body === "string" ? Buffer.from(init.body, "utf8") : new Uint8Array();
+		const requestNonce = base64UrlEncode(randomBytes(16));
+		const wireBody = plaintextBody.length > 0
+			? encryptSecureEnvelope(this.token, httpClientPurpose, httpSecureAAD("request", method, parsedURL.pathname, requestNonce), plaintextBody)
+			: undefined;
+		const auth = createRequestAuth(this.token, method, parsedURL.pathname, wireBody ? Buffer.from(wireBody, "utf8") : new Uint8Array(), requestNonce);
+		const headers = new Headers(init.headers);
+		for (const [name, value] of Object.entries(auth.headers)) headers.set(name, value);
+		const response = await fetch(url, { ...init, body: wireBody, headers });
 		let body: unknown;
+		const rawBody = Buffer.from(await response.arrayBuffer());
+		const responseBody = response.headers.get("X-Pi-Remote-Encrypted") === "1"
+			? decryptSecureEnvelope(this.token, httpServerPurpose, httpSecureAAD("response", method, parsedURL.pathname, auth.nonce), rawBody.toString("utf8")).toString("utf8")
+			: rawBody.toString("utf8");
 		try {
-			body = await response.json();
+			body = JSON.parse(responseBody);
 		} catch {
 			throw new Error(`Gateway returned HTTP ${response.status} with a non-JSON body`);
 		}
@@ -217,7 +323,7 @@ export default function piRemoteExtension(pi: ExtensionAPI) {
 		type: "string",
 	});
 	pi.registerFlag("pi-remote-token", {
-		description: "Pi remote bearer token override (normally set by /remote connect)",
+		description: "Pi remote encryption token override (normally set by /remote connect)",
 		type: "string",
 	});
 	pi.registerFlag("pi-remote-target", {

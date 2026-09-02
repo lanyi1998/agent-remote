@@ -28,6 +28,7 @@ type pendingCall struct {
 type Peer struct {
 	Hello     protocol.Hello
 	conn      *websocket.Conn
+	token     string
 	writeMu   sync.Mutex
 	pendingMu sync.Mutex
 	pending   map[string]*pendingCall
@@ -36,10 +37,11 @@ type Peer struct {
 	onClose   func()
 }
 
-func NewPeer(conn *websocket.Conn, hello protocol.Hello, onClose func()) *Peer {
+func NewPeer(conn *websocket.Conn, hello protocol.Hello, token string, onClose func()) *Peer {
 	peer := &Peer{
 		Hello:   hello,
 		conn:    conn,
+		token:   token,
 		pending: make(map[string]*pendingCall),
 		closed:  make(chan struct{}),
 		onClose: onClose,
@@ -117,8 +119,18 @@ func (p *Peer) removePending(id string) {
 
 func (p *Peer) readLoop() {
 	for {
+		var envelope Envelope
+		if err := p.conn.ReadJSON(&envelope); err != nil {
+			p.closeWithError(err)
+			return
+		}
+		plaintext, err := DecryptEnvelope(p.token, PurposeWorkerToGateway, WorkerToGatewayAAD, envelope)
+		if err != nil {
+			p.closeWithError(err)
+			return
+		}
 		var message protocol.WireMessage
-		if err := p.conn.ReadJSON(&message); err != nil {
+		if err := json.Unmarshal(plaintext, &message); err != nil {
 			p.closeWithError(err)
 			return
 		}
@@ -175,7 +187,15 @@ func (p *Peer) writeJSON(message protocol.WireMessage) error {
 	p.writeMu.Lock()
 	defer p.writeMu.Unlock()
 	_ = p.conn.SetWriteDeadline(time.Now().Add(15 * time.Second))
-	return p.conn.WriteJSON(message)
+	payload, err := json.Marshal(message)
+	if err != nil {
+		return err
+	}
+	envelope, err := EncryptEnvelope(p.token, PurposeGatewayToWorker, GatewayToWorkerAAD, payload)
+	if err != nil {
+		return err
+	}
+	return p.conn.WriteJSON(envelope)
 }
 
 func (p *Peer) closeWithError(closeErr error) {
