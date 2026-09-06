@@ -44,6 +44,22 @@ jobs:
             go build -trimpath -ldflags="-s -w" \
             -o dist/pi-remote-cli-linux-amd64 ./cmd/pi-remote-cli
 
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 \
+            go build -trimpath -ldflags="-s -w" \
+            -o dist/pi-remote-darwin-amd64 ./cmd/pi-remote
+
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 \
+            go build -trimpath -ldflags="-s -w" \
+            -o dist/pi-remote-cli-darwin-amd64 ./cmd/pi-remote-cli
+
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 \
+            go build -trimpath -ldflags="-s -w" \
+            -o dist/pi-remote-darwin-arm64 ./cmd/pi-remote
+
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 \
+            go build -trimpath -ldflags="-s -w" \
+            -o dist/pi-remote-cli-darwin-arm64 ./cmd/pi-remote-cli
+
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
             go build -trimpath -ldflags="-s -w" \
             -o dist/pi-remote-windows-amd64.exe ./cmd/pi-remote
