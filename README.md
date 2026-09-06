@@ -215,6 +215,11 @@ edit [--edits JSON | --edits-file FILE] PATH
 
 rpc [--input JSON | --input-file FILE] TOOL
     Invoke a tool directly. When neither input option is present, read JSON from stdin.
+
+mcp
+    Run an MCP server over stdio for Agent clients. It exposes remote_targets,
+    remote_read, remote_find, remote_bash, remote_write, and remote_edit.
+    Interactive terminal sessions remain a CLI-only feature.
 ```
 
 For multiline scripts, stdin avoids shell quoting problems:
@@ -257,6 +262,38 @@ A wildcard listen address is replaced with a reachable local IPv4 address, and T
 deployments use an `https://` URL.
 
 `bash` returns the remote command's exit status when it is in the `1-255` range, in both JSON and raw output modes. Transport and RPC failures return exit status `1` and a JSON error on stderr. The bundled Agent Skill is at [`skills/pi-remote-cli/SKILL.md`](skills/pi-remote-cli/SKILL.md).
+
+### MCP server
+
+The same binary can serve MCP clients through the standard stdio transport. MCP uses
+the existing `PI_REMOTE_URL`, `PI_REMOTE_TOKEN`, and optional `PI_REMOTE_TARGET`
+environment variables. Provide the Token through your MCP host's environment or secret
+facility, and never commit a configuration file containing a real Token.
+
+```json
+{
+  "mcpServers": {
+    "pi-remote": {
+      "command": "/usr/local/bin/pi-remote-cli",
+      "args": ["mcp"],
+      "env": {
+        "PI_REMOTE_URL": "http://HOST:8787",
+        "PI_REMOTE_TOKEN": "replace-with-a-long-random-token",
+        "PI_REMOTE_TARGET": "office-linux"
+      }
+    }
+  }
+}
+```
+
+MCP messages are the only data written to stdout. The server exposes
+`remote_targets`, `remote_read`, `remote_find`, `remote_bash`, `remote_write`, and
+`remote_edit`; `remote_bash` is non-interactive in MCP mode, so use the CLI's
+`bash --tty` when a real terminal is required.
+
+The MCP server can start and expose its tools before the connection variables are
+available. Remote tool calls return a structured error until `PI_REMOTE_URL` and
+`PI_REMOTE_TOKEN` are provided to the process.
 
 Run `pi-remote-cli --help` for the built-in command summary. The Token is used locally to authenticate and encrypt requests; avoid placing it in shell history on shared machines and prefer `PI_REMOTE_TOKEN` in that situation.
 

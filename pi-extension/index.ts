@@ -81,7 +81,6 @@ interface RemoteImage {
 
 interface BashResult {
 	output: string;
-	output_base64: string;
 	exit_code: number;
 	truncated?: boolean;
 	timed_out?: boolean;
@@ -1049,8 +1048,8 @@ function readDetails(result: ReadResult): Omit<ReadResult, "content" | "content_
 	return details;
 }
 
-function bashDetails(result: BashResult): Omit<BashResult, "output" | "output_base64"> {
-	const { output: _output, output_base64: _outputBase64, ...details } = result;
+function bashDetails(result: BashResult): Omit<BashResult, "output"> {
+	const { output: _output, ...details } = result;
 	return details;
 }
 

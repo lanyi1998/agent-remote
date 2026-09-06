@@ -2,7 +2,6 @@ package tool
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -28,7 +27,6 @@ type bashInput struct {
 
 type bashResult struct {
 	Output       string `json:"output"`
-	OutputBase64 string `json:"output_base64"`
 	ExitCode     int    `json:"exit_code"`
 	Truncated    bool   `json:"truncated,omitempty"`
 	TimedOut     bool   `json:"timed_out,omitempty"`
@@ -86,10 +84,9 @@ func (s *Service) executeBash(parent context.Context, rawInput []byte, inputRead
 }
 
 func (s *Service) finishBashResult(ctx context.Context, timeout time.Duration, shellProfile string, collector *outputCollector, exitCode int, runErr error) (bashResult, error) {
-	output, encoded, truncated := collector.Snapshot()
+	output, truncated := collector.Snapshot()
 	result := bashResult{
 		Output:       output,
-		OutputBase64: encoded,
 		ExitCode:     exitCode,
 		Truncated:    truncated,
 		TimedOut:     errors.Is(ctx.Err(), context.DeadlineExceeded),
@@ -235,7 +232,7 @@ func (w *outputCollector) appendDecoded(data []byte) {
 	}
 }
 
-func (w *outputCollector) Snapshot() (string, string, bool) {
+func (w *outputCollector) Snapshot() (string, bool) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.appendDecoded(w.decoder.Flush())
@@ -245,7 +242,7 @@ func (w *outputCollector) Snapshot() (string, string, bool) {
 	if truncated {
 		output = fmt.Sprintf("[Output truncated; showing last %d bytes.]\n%s", len(data), output)
 	}
-	return output, base64.StdEncoding.EncodeToString(data), truncated
+	return output, truncated
 }
 
 func runManaged(ctx context.Context, command *exec.Cmd, input io.Reader) (int, error) {

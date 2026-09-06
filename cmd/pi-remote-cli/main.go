@@ -69,16 +69,19 @@ func run(arguments []string, ioStreams streams) error {
 		_, err := fmt.Fprintln(ioStreams.out, buildinfo.Version)
 		return err
 	}
-	client, err := remoteclient.New(remoteclient.Config{BaseURL: options.url, Token: options.token})
-	if err != nil {
-		return err
-	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if options.requestTimeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, options.requestTimeout)
 		defer cancel()
+	}
+	if command == "mcp" {
+		return runMCP(ctx, options, commandArguments, ioStreams)
+	}
+	client, err := remoteclient.New(remoteclient.Config{BaseURL: options.url, Token: options.token})
+	if err != nil {
+		return err
 	}
 	err = runCommand(ctx, client, options, command, commandArguments, ioStreams)
 	if errors.Is(err, flag.ErrHelp) {
@@ -500,6 +503,7 @@ Usage:
   pi-remote-cli [global flags] write [--content TEXT|--content-file FILE] PATH
   pi-remote-cli [global flags] edit [--edits JSON|--edits-file FILE] PATH
   pi-remote-cli [global flags] rpc [--input JSON|--input-file FILE] TOOL
+  pi-remote-cli [global flags] mcp
 
 Global flags (must precede the command):
   --url URL              Gateway URL; defaults to PI_REMOTE_URL

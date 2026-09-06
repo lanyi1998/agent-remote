@@ -209,6 +209,10 @@ edit [--edits JSON | --edits-file FILE] PATH
 
 rpc [--input JSON | --input-file FILE] TOOL
     直接调用工具。未提供 input 参数时从 stdin 读取 JSON。
+
+mcp
+    通过 stdio 启动供 Agent 使用的 MCP Server，提供 remote_targets、remote_read、
+    remote_find、remote_bash、remote_write 和 remote_edit；交互式终端仍仅由 CLI 提供。
 ```
 
 多行脚本建议通过 stdin 传入，以避免 Shell 转义问题：
@@ -255,6 +259,35 @@ Gateway 使用 `serve` 启动时，会打印可直接复制到本机执行的 `P
 `https://`。这些命令中的 Token 会按明文显示。
 
 在 `1-255` 范围内，无论使用 JSON 还是原始输出模式，`bash` 都会传递远端命令的退出码。传输错误和 RPC 错误使用退出码 `1`，并向 stderr 输出 JSON 错误。配套 Agent Skill 位于 [`skills/pi-remote-cli/SKILL.md`](../skills/pi-remote-cli/SKILL.md)。
+
+### MCP Server
+
+同一个二进制可以通过标准 stdio transport 作为 MCP Server 运行。MCP 使用既有的
+`PI_REMOTE_URL`、`PI_REMOTE_TOKEN` 和可选的 `PI_REMOTE_TARGET` 环境变量。通过 MCP
+宿主的环境变量或密钥设施提供 Token，切勿提交含有真实 Token 的配置文件。
+
+```json
+{
+  "mcpServers": {
+    "pi-remote": {
+      "command": "/usr/local/bin/pi-remote-cli",
+      "args": ["mcp"],
+      "env": {
+        "PI_REMOTE_URL": "http://HOST:8787",
+        "PI_REMOTE_TOKEN": "replace-with-a-long-random-token",
+        "PI_REMOTE_TARGET": "office-linux"
+      }
+    }
+  }
+}
+```
+
+stdout 只输出 MCP 协议消息。Server 提供 `remote_targets`、`remote_read`、
+`remote_find`、`remote_bash`、`remote_write` 和 `remote_edit`；MCP 中的
+`remote_bash` 非交互式运行，需要真实终端时仍使用 CLI 的 `bash --tty`。
+
+即使尚未提供连接环境变量，MCP Server 也可以启动并暴露工具；在为进程提供
+`PI_REMOTE_URL` 和 `PI_REMOTE_TOKEN` 前，远端工具调用会返回结构化错误。
 
 运行 `pi-remote-cli --help` 可以查看内置命令摘要。Token 只在本地用于请求认证和加密；在共享机器上应避免将 Token 直接写入 Shell 历史，优先使用 `PI_REMOTE_TOKEN`。
 
