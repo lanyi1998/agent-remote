@@ -72,13 +72,17 @@ func (s *Service) Root() string {
 }
 
 func (s *Service) Execute(ctx context.Context, name string, input json.RawMessage, onChunk ChunkWriter) (json.RawMessage, error) {
+	return s.ExecuteWithInput(ctx, name, input, nil, onChunk)
+}
+
+func (s *Service) ExecuteWithInput(ctx context.Context, name string, input json.RawMessage, inputReader io.Reader, onChunk ChunkWriter) (json.RawMessage, error) {
 	var result interface{}
 	var err error
 	switch name {
 	case "read":
 		result, err = s.executeRead(input)
 	case "bash":
-		result, err = s.executeBash(ctx, input, onChunk)
+		result, err = s.executeBash(ctx, input, inputReader, onChunk)
 	case "edit":
 		result, err = s.executeEdit(input)
 	case "write":

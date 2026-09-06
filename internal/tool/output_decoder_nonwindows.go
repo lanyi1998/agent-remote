@@ -2,16 +2,11 @@
 
 package tool
 
-type passthroughOutputDecoder struct{}
+import "strings"
 
-func newOutputDecoder() outputDecoder {
-	return passthroughOutputDecoder{}
-}
-
-func (passthroughOutputDecoder) Decode(data []byte) []byte {
-	return data
-}
-
-func (passthroughOutputDecoder) Flush() []byte {
-	return nil
+func newOutputDecoder(name string) (outputDecoder, error) {
+	if strings.TrimSpace(name) == "" || isUTF8Encoding(name) {
+		return passthroughOutputDecoder{}, nil
+	}
+	return newTextOutputDecoder(name)
 }

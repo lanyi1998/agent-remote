@@ -11,13 +11,17 @@ import (
 )
 
 const (
-	SecureVersion          = 1
-	PurposeHTTPClient      = "http-client"
-	PurposeHTTPServer      = "http-server"
-	PurposeWorkerToGateway = "worker-to-gateway"
-	PurposeGatewayToWorker = "gateway-to-worker"
-	WorkerToGatewayAAD     = "websocket/v1\nworker-to-gateway"
-	GatewayToWorkerAAD     = "websocket/v1\ngateway-to-worker"
+	SecureVersion              = 1
+	PurposeHTTPClient          = "http-client"
+	PurposeHTTPServer          = "http-server"
+	PurposeWorkerToGateway     = "worker-to-gateway"
+	PurposeGatewayToWorker     = "gateway-to-worker"
+	PurposeTerminalClient      = "terminal-client"
+	PurposeTerminalGateway     = "terminal-gateway"
+	WorkerToGatewayAAD         = "websocket/v1\nworker-to-gateway"
+	GatewayToWorkerAAD         = "websocket/v1\ngateway-to-worker"
+	TerminalClientToGatewayAAD = "websocket/v1\nterminal-client-to-gateway"
+	TerminalGatewayToClientAAD = "websocket/v1\nterminal-gateway-to-client"
 )
 
 type Envelope struct {

@@ -14,6 +14,8 @@
 
 Pi 扩展会接管 `read`、`bash`、`edit`、`write`、文件补全和交互式 `!` Bash 命令。
 
+对于其他 Agent 和脚本，仓库还提供输出稳定 JSON 的独立 `pi-remote-cli` 客户端。
+
 ## 安装 Pi 扩展
 
 将扩展复制到 Pi 的自动加载目录：
@@ -141,6 +143,121 @@ curl http://HOST:8787/healthz
 
 `/v1/targets` 和 `/v1/rpc` 使用 Token + HMAC + AES-256-GCM 协议，不接受明文 `Authorization: Bearer` 请求头。请使用 Pi 扩展，或实现相同的安全协议。
 
+## 供其他 Agent 使用的 CLI
+
+构建并安装客户端：
+
+```sh
+go build -o bin/pi-remote-cli ./cmd/pi-remote-cli
+```
+
+可通过环境变量配置：
+
+```sh
+export PI_REMOTE_URL=http://HOST:8787
+export PI_REMOTE_TOKEN=replace-with-a-long-random-token
+export PI_REMOTE_TARGET=office-linux # 可选，默认为 local
+```
+
+也可以把连接参数写在子命令之前。命令行参数的优先级高于环境变量：
+
+```sh
+pi-remote-cli --url http://HOST:8787 --token TOKEN --target office-linux targets
+pi-remote-cli read --offset 1 --limit 200 README.md
+pi-remote-cli find --max-results 50 internal
+pi-remote-cli bash --timeout 300 'go test ./...'
+pi-remote-cli bash --tty --timeout 300 --encoding utf-8 './tools/setup/startup-linux.sh'
+printf '%s' '新内容' | pi-remote-cli write path/to/file.txt
+printf '%s' '[{"oldText":"替换前","newText":"替换后"}]' | pi-remote-cli edit path/to/file.txt
+printf '%s' '{"path":"README.md"}' | pi-remote-cli rpc read
+```
+
+全局参数必须写在子命令之前：
+
+```text
+--url URL              Gateway 地址，默认读取 PI_REMOTE_URL
+--token TOKEN          共享 Token，默认读取 PI_REMOTE_TOKEN
+--target ID            local 或 Worker ID，默认读取 PI_REMOTE_TARGET 或使用 local
+--raw                  read 和 bash 直接输出原始内容
+--request-timeout D    整个请求的超时时间，例如 30s 或 2m
+```
+
+可用命令：
+
+```text
+targets
+    列出 Gateway 和已连接 Worker 的信息。
+
+read [--offset N] [--limit N] PATH
+    读取远端文本或二进制文件。JSON 模式下二进制内容使用 base64 编码。
+
+find [--max-results N] [QUERY]
+    在远端工作目录下查找文件和目录。
+
+bash [--timeout SEC] [--tty] [--encoding NAME] [COMMAND...]
+shell [--timeout SEC] [--tty] [--encoding NAME] [COMMAND...]
+    执行远端 Shell 命令。省略 COMMAND 时从 stdin 读取脚本。
+    --tty 将本机 stdin/stdout 连接到远端 PTY，支持交互式程序。
+    --encoding 指定远端输出编码，例如 utf-8、gb18030、gbk、big5 或 shift-jis。
+
+write [--content TEXT | --content-file FILE] PATH
+    覆盖远端文件。未提供内容参数时从 stdin 读取完整内容。
+
+edit [--edits JSON | --edits-file FILE] PATH
+    执行精确文本替换。JSON 是由 oldText/newText 对象组成的数组。
+    未提供 edits 参数时从 stdin 读取 JSON 数组。
+
+rpc [--input JSON | --input-file FILE] TOOL
+    直接调用工具。未提供 input 参数时从 stdin 读取 JSON。
+```
+
+多行脚本建议通过 stdin 传入，以避免 Shell 转义问题：
+
+```sh
+pi-remote-cli --target office-linux bash --timeout 300 <<'SCRIPT'
+set -e
+go test ./...
+go build ./...
+SCRIPT
+```
+
+文本替换示例：
+
+```sh
+pi-remote-cli edit README.md <<'JSON'
+[
+  {
+    "oldText": "替换前",
+    "newText": "替换后"
+  }
+]
+JSON
+```
+
+正常 stdout 是格式化后的 JSON，便于 Agent 和脚本稳定解析。把全局 `--raw` 放在子命令之前，可以直接输出文件内容或 Shell 输出：
+
+```sh
+pi-remote-cli --raw read README.md
+pi-remote-cli --raw bash 'uname -a'
+```
+
+远端安装器或其他需要真实终端的程序使用 `--tty`，例如：
+
+```sh
+pi-remote-cli bash --tty --timeout 300 --encoding utf-8 './tools/setup/startup-linux.sh'
+```
+
+PTY 会话会把键盘输入和远端输出实时转发；当前远端 Unix-like 目标支持 PTY。
+
+Gateway 使用 `serve` 启动时，会打印可直接复制到本机执行的 `PI_REMOTE_URL`、
+`PI_REMOTE_TOKEN` 导出命令，以及 Pi 可执行的 `/remote connect URL TOKEN` 命令。监听地址是
+`0.0.0.0` 或 `[::]` 时，会自动替换为可访问的本机 IPv4 地址；启用 TLS 时 URL 使用
+`https://`。这些命令中的 Token 会按明文显示。
+
+在 `1-255` 范围内，无论使用 JSON 还是原始输出模式，`bash` 都会传递远端命令的退出码。传输错误和 RPC 错误使用退出码 `1`，并向 stderr 输出 JSON 错误。配套 Agent Skill 位于 [`skills/pi-remote-cli/SKILL.md`](../skills/pi-remote-cli/SKILL.md)。
+
+运行 `pi-remote-cli --help` 可以查看内置命令摘要。Token 只在本地用于请求认证和加密；在共享机器上应避免将 Token 直接写入 Shell 历史，优先使用 `PI_REMOTE_TOKEN`。
+
 ## 运行时文件
 
 构建 Windows 程序前，将运行时文件放在：
@@ -172,6 +289,7 @@ Windows 7 程序使用 Go 1.20.14：
 ```sh
 go mod download
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -o bin/pi-remote-windows-amd64.exe ./cmd/pi-remote
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -o bin/pi-remote-cli-windows-amd64.exe ./cmd/pi-remote-cli
 ```
 
 嵌入的运行时和 Windows 程序均只支持 amd64。

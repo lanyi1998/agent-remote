@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -140,8 +141,15 @@ type session struct {
 	writeMu    sync.Mutex
 	cancelMu   sync.Mutex
 	cancels    map[string]context.CancelFunc
+	terminalMu sync.Mutex
+	terminals  map[string]*workerTerminal
 	closed     chan struct{}
 	closeOnce  sync.Once
+}
+
+type workerTerminal struct {
+	input  *io.PipeWriter
+	cancel context.CancelFunc
 }
 
 func newSession(connection *websocket.Conn, token string, tools *tool.Service) *session {
@@ -151,6 +159,7 @@ func newSession(connection *websocket.Conn, token string, tools *tool.Service) *
 		token:      token,
 		tools:      tools,
 		cancels:    make(map[string]context.CancelFunc),
+		terminals:  make(map[string]*workerTerminal),
 		closed:     make(chan struct{}),
 	}
 }
@@ -176,6 +185,10 @@ func (s *session) readLoop(ctx context.Context) error {
 			}
 		case protocol.MessageCancel:
 			s.cancel(message.ID)
+		case protocol.MessageTerminal:
+			if message.Terminal != nil && message.ID != "" {
+				s.handleTerminal(ctx, message.ID, *message.Terminal)
+			}
 		}
 	}
 }
@@ -215,6 +228,113 @@ func (s *session) execute(parent context.Context, id string, request protocol.Wi
 			ResultB64: protocol.EncodePayload(result),
 		},
 	})
+}
+
+func (s *session) handleTerminal(parent context.Context, id string, message protocol.WireTerminal) {
+	switch message.Operation {
+	case protocol.TerminalOpen:
+		s.startTerminal(parent, id, message)
+	case protocol.TerminalInput:
+		s.writeTerminalInput(id, message.DataB64)
+	case protocol.TerminalResize:
+		// The initial size is part of the bash payload. Future resize support can
+		// be added without changing the terminal message shape.
+	case protocol.TerminalClose:
+		s.closeTerminal(id)
+	}
+}
+
+func (s *session) startTerminal(parent context.Context, id string, message protocol.WireTerminal) {
+	input, err := protocol.DecodePayload(message.PayloadB64)
+	if err != nil {
+		s.sendTerminalExit(id, -1, &protocol.RPCError{Code: "invalid_payload", Message: err.Error()})
+		return
+	}
+	reader, writer := io.Pipe()
+	ctx, cancel := context.WithCancel(parent)
+	if !s.registerTerminal(id, &workerTerminal{input: writer, cancel: cancel}) {
+		cancel()
+		_ = reader.Close()
+		_ = writer.Close()
+		s.sendTerminalExit(id, -1, &protocol.RPCError{Code: "duplicate_terminal", Message: "terminal id is already running"})
+		return
+	}
+	go func() {
+		defer s.removeTerminal(id)
+		defer reader.Close()
+		result, executeErr := s.tools.ExecuteWithInput(ctx, message.Tool, json.RawMessage(input), reader, func(data []byte) {
+			_ = s.writeJSON(protocol.WireMessage{
+				Type: protocol.MessageTerminal,
+				ID:   id,
+				Terminal: &protocol.WireTerminal{
+					Operation: protocol.TerminalOutput,
+					DataB64:   protocol.EncodePayload(data),
+				},
+			})
+		})
+		if executeErr != nil {
+			s.sendTerminalExit(id, -1, toProtocolError(executeErr))
+			return
+		}
+		var resultInfo struct {
+			ExitCode int `json:"exit_code"`
+		}
+		if err := json.Unmarshal(result, &resultInfo); err != nil {
+			s.sendTerminalExit(id, -1, &protocol.RPCError{Code: "invalid_result", Message: err.Error()})
+			return
+		}
+		s.sendTerminalExit(id, resultInfo.ExitCode, nil)
+	}()
+}
+
+func (s *session) writeTerminalInput(id, encoded string) {
+	data, err := protocol.DecodePayload(encoded)
+	if err != nil {
+		return
+	}
+	s.terminalMu.Lock()
+	terminal := s.terminals[id]
+	s.terminalMu.Unlock()
+	if terminal != nil {
+		_, _ = terminal.input.Write(data)
+	}
+}
+
+func (s *session) sendTerminalExit(id string, exitCode int, rpcErr *protocol.RPCError) {
+	_ = s.writeJSON(protocol.WireMessage{
+		Type: protocol.MessageTerminal,
+		ID:   id,
+		Terminal: &protocol.WireTerminal{
+			Operation: protocol.TerminalExit,
+			ExitCode:  exitCode,
+			Error:     rpcErr,
+		},
+	})
+}
+
+func (s *session) registerTerminal(id string, terminal *workerTerminal) bool {
+	s.terminalMu.Lock()
+	defer s.terminalMu.Unlock()
+	if _, exists := s.terminals[id]; exists {
+		return false
+	}
+	s.terminals[id] = terminal
+	return true
+}
+
+func (s *session) removeTerminal(id string) {
+	s.terminalMu.Lock()
+	terminal := s.terminals[id]
+	delete(s.terminals, id)
+	s.terminalMu.Unlock()
+	if terminal != nil {
+		terminal.cancel()
+		_ = terminal.input.Close()
+	}
+}
+
+func (s *session) closeTerminal(id string) {
+	s.removeTerminal(id)
 }
 
 func (s *session) sendError(id string, rpcError *protocol.RPCError) {
@@ -287,6 +407,14 @@ func (s *session) close() {
 		}
 		s.cancels = make(map[string]context.CancelFunc)
 		s.cancelMu.Unlock()
+		s.terminalMu.Lock()
+		terminals := s.terminals
+		s.terminals = make(map[string]*workerTerminal)
+		s.terminalMu.Unlock()
+		for _, terminal := range terminals {
+			terminal.cancel()
+			_ = terminal.input.Close()
+		}
 	})
 }
 

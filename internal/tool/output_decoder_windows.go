@@ -3,6 +3,7 @@
 package tool
 
 import (
+	"strings"
 	"unicode/utf16"
 	"unicode/utf8"
 
@@ -16,8 +17,14 @@ type windowsOutputDecoder struct {
 	pending  []byte
 }
 
-func newOutputDecoder() outputDecoder {
-	return &windowsOutputDecoder{codePage: windows.GetACP()}
+func newOutputDecoder(name string) (outputDecoder, error) {
+	if !isUTF8Encoding(name) {
+		return newTextOutputDecoder(name)
+	}
+	if strings.TrimSpace(name) != "" {
+		return passthroughOutputDecoder{}, nil
+	}
+	return &windowsOutputDecoder{codePage: windows.GetACP()}, nil
 }
 
 func (d *windowsOutputDecoder) Decode(data []byte) []byte {

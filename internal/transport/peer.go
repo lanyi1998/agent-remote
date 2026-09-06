@@ -25,6 +25,19 @@ type pendingCall struct {
 	onChunk ChunkHandler
 }
 
+type TerminalHandler func([]byte)
+
+type terminalResult struct {
+	exitCode     int
+	err          *protocol.RPCError
+	transportErr error
+}
+
+type terminalCall struct {
+	result   chan terminalResult
+	onOutput TerminalHandler
+}
+
 type Peer struct {
 	Hello     protocol.Hello
 	conn      *websocket.Conn
@@ -32,6 +45,7 @@ type Peer struct {
 	writeMu   sync.Mutex
 	pendingMu sync.Mutex
 	pending   map[string]*pendingCall
+	terminals map[string]*terminalCall
 	closed    chan struct{}
 	closeOnce sync.Once
 	onClose   func()
@@ -39,12 +53,13 @@ type Peer struct {
 
 func NewPeer(conn *websocket.Conn, hello protocol.Hello, token string, onClose func()) *Peer {
 	peer := &Peer{
-		Hello:   hello,
-		conn:    conn,
-		token:   token,
-		pending: make(map[string]*pendingCall),
-		closed:  make(chan struct{}),
-		onClose: onClose,
+		Hello:     hello,
+		conn:      conn,
+		token:     token,
+		pending:   make(map[string]*pendingCall),
+		terminals: make(map[string]*terminalCall),
+		closed:    make(chan struct{}),
+		onClose:   onClose,
 	}
 	conn.SetReadLimit(72 * 1024 * 1024)
 	conn.SetPongHandler(func(string) error {
@@ -97,6 +112,89 @@ func (p *Peer) Call(ctx context.Context, id, toolName string, input json.RawMess
 	}
 }
 
+func (p *Peer) OpenTerminal(ctx context.Context, id, toolName string, input json.RawMessage, onOutput TerminalHandler, ready chan<- error) (int, error) {
+	call := &terminalCall{result: make(chan terminalResult, 1), onOutput: onOutput}
+	if err := p.addTerminal(id, call); err != nil {
+		signalTerminalReady(ready, err)
+		return -1, err
+	}
+	defer p.removeTerminal(id)
+	if err := p.writeJSON(protocol.WireMessage{
+		Type: protocol.MessageTerminal,
+		ID:   id,
+		Terminal: &protocol.WireTerminal{
+			Operation:  protocol.TerminalOpen,
+			Tool:       toolName,
+			PayloadB64: protocol.EncodePayload(input),
+		},
+	}); err != nil {
+		signalTerminalReady(ready, err)
+		return -1, err
+	}
+	signalTerminalReady(ready, nil)
+	select {
+	case result := <-call.result:
+		if result.transportErr != nil {
+			return -1, result.transportErr
+		}
+		if result.err != nil {
+			return -1, fmt.Errorf("terminal failed: %s", result.err.Message)
+		}
+		return result.exitCode, nil
+	case <-ctx.Done():
+		_ = p.CloseTerminal(id)
+		return -1, ctx.Err()
+	case <-p.closed:
+		return -1, errors.New("worker connection closed")
+	}
+}
+
+func signalTerminalReady(ready chan<- error, err error) {
+	if ready != nil {
+		ready <- err
+	}
+}
+
+func (p *Peer) SendTerminalInput(id string, data []byte) error {
+	if !p.hasTerminal(id) {
+		return errors.New("terminal session is not running")
+	}
+	return p.writeJSON(protocol.WireMessage{
+		Type: protocol.MessageTerminal,
+		ID:   id,
+		Terminal: &protocol.WireTerminal{
+			Operation: protocol.TerminalInput,
+			DataB64:   protocol.EncodePayload(data),
+		},
+	})
+}
+
+func (p *Peer) ResizeTerminal(id string, width, height int) error {
+	if !p.hasTerminal(id) {
+		return errors.New("terminal session is not running")
+	}
+	return p.writeJSON(protocol.WireMessage{
+		Type: protocol.MessageTerminal,
+		ID:   id,
+		Terminal: &protocol.WireTerminal{
+			Operation: protocol.TerminalResize,
+			Width:     width,
+			Height:    height,
+		},
+	})
+}
+
+func (p *Peer) CloseTerminal(id string) error {
+	if !p.hasTerminal(id) {
+		return nil
+	}
+	return p.writeJSON(protocol.WireMessage{
+		Type:     protocol.MessageTerminal,
+		ID:       id,
+		Terminal: &protocol.WireTerminal{Operation: protocol.TerminalClose},
+	})
+}
+
 func (p *Peer) Close() {
 	p.closeWithError(errors.New("worker connection closed"))
 }
@@ -115,6 +213,29 @@ func (p *Peer) removePending(id string) {
 	p.pendingMu.Lock()
 	delete(p.pending, id)
 	p.pendingMu.Unlock()
+}
+
+func (p *Peer) addTerminal(id string, call *terminalCall) error {
+	p.pendingMu.Lock()
+	defer p.pendingMu.Unlock()
+	if _, exists := p.terminals[id]; exists {
+		return fmt.Errorf("duplicate terminal id %q", id)
+	}
+	p.terminals[id] = call
+	return nil
+}
+
+func (p *Peer) removeTerminal(id string) {
+	p.pendingMu.Lock()
+	delete(p.terminals, id)
+	p.pendingMu.Unlock()
+}
+
+func (p *Peer) hasTerminal(id string) bool {
+	p.pendingMu.Lock()
+	_, exists := p.terminals[id]
+	p.pendingMu.Unlock()
+	return exists
 }
 
 func (p *Peer) readLoop() {
@@ -141,7 +262,12 @@ func (p *Peer) readLoop() {
 func (p *Peer) dispatch(message protocol.WireMessage) {
 	p.pendingMu.Lock()
 	call := p.pending[message.ID]
+	terminal := p.terminals[message.ID]
 	p.pendingMu.Unlock()
+	if message.Type == protocol.MessageTerminal {
+		p.dispatchTerminal(terminal, message.Terminal)
+		return
+	}
 	if call == nil {
 		return
 	}
@@ -160,6 +286,24 @@ func (p *Peer) dispatch(message protocol.WireMessage) {
 			case call.result <- callResult{response: message.Result}:
 			default:
 			}
+		}
+	}
+}
+
+func (p *Peer) dispatchTerminal(call *terminalCall, message *protocol.WireTerminal) {
+	if call == nil || message == nil {
+		return
+	}
+	switch message.Operation {
+	case protocol.TerminalOutput:
+		data, err := protocol.DecodePayload(message.DataB64)
+		if err == nil && call.onOutput != nil {
+			call.onOutput(data)
+		}
+	case protocol.TerminalExit:
+		select {
+		case call.result <- terminalResult{exitCode: message.ExitCode, err: message.Error}:
+		default:
 		}
 	}
 }
@@ -210,6 +354,13 @@ func (p *Peer) closeWithError(closeErr error) {
 			}
 		}
 		p.pending = make(map[string]*pendingCall)
+		for _, terminal := range p.terminals {
+			select {
+			case terminal.result <- terminalResult{transportErr: closeErr}:
+			default:
+			}
+		}
+		p.terminals = make(map[string]*terminalCall)
 		p.pendingMu.Unlock()
 		if p.onClose != nil {
 			p.onClose()

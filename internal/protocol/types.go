@@ -14,6 +14,16 @@ const (
 	MessageChunk    = "chunk"
 	MessageResponse = "response"
 	MessageCancel   = "cancel"
+	MessageTerminal = "terminal"
+)
+
+const (
+	TerminalOpen   = "open"
+	TerminalInput  = "input"
+	TerminalResize = "resize"
+	TerminalOutput = "output"
+	TerminalExit   = "exit"
+	TerminalClose  = "close"
 )
 
 type RPCRequest struct {
@@ -48,12 +58,13 @@ type Hello struct {
 }
 
 type WireMessage struct {
-	Type    string        `json:"type"`
-	ID      string        `json:"id,omitempty"`
-	Hello   *Hello        `json:"hello,omitempty"`
-	Request *WireRequest  `json:"request,omitempty"`
-	Chunk   *WireChunk    `json:"chunk,omitempty"`
-	Result  *WireResponse `json:"response,omitempty"`
+	Type     string        `json:"type"`
+	ID       string        `json:"id,omitempty"`
+	Hello    *Hello        `json:"hello,omitempty"`
+	Request  *WireRequest  `json:"request,omitempty"`
+	Chunk    *WireChunk    `json:"chunk,omitempty"`
+	Terminal *WireTerminal `json:"terminal,omitempty"`
+	Result   *WireResponse `json:"response,omitempty"`
 }
 
 type WireRequest struct {
@@ -63,6 +74,18 @@ type WireRequest struct {
 
 type WireChunk struct {
 	DataB64 string `json:"data_b64"`
+}
+
+type WireTerminal struct {
+	Operation  string    `json:"operation"`
+	Target     string    `json:"target,omitempty"`
+	Tool       string    `json:"tool,omitempty"`
+	PayloadB64 string    `json:"payload_b64,omitempty"`
+	DataB64    string    `json:"data_b64,omitempty"`
+	Width      int       `json:"width,omitempty"`
+	Height     int       `json:"height,omitempty"`
+	ExitCode   int       `json:"exit_code,omitempty"`
+	Error      *RPCError `json:"error,omitempty"`
 }
 
 type WireResponse struct {

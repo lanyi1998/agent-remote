@@ -18,8 +18,12 @@ import (
 )
 
 type bashInput struct {
-	Command string   `json:"command"`
-	Timeout *float64 `json:"timeout,omitempty"`
+	Command  string   `json:"command"`
+	Timeout  *float64 `json:"timeout,omitempty"`
+	PTY      bool     `json:"pty,omitempty"`
+	Encoding string   `json:"encoding,omitempty"`
+	Width    int      `json:"width,omitempty"`
+	Height   int      `json:"height,omitempty"`
 }
 
 type bashResult struct {
@@ -31,7 +35,7 @@ type bashResult struct {
 	ShellProfile string `json:"shell_profile"`
 }
 
-func (s *Service) executeBash(parent context.Context, rawInput []byte, onChunk ChunkWriter) (bashResult, error) {
+func (s *Service) executeBash(parent context.Context, rawInput []byte, inputReader io.Reader, onChunk ChunkWriter) (bashResult, error) {
 	var input bashInput
 	if err := decodeInput(rawInput, &input); err != nil {
 		return bashResult{}, err
@@ -54,12 +58,34 @@ func (s *Service) executeBash(parent context.Context, rawInput []byte, onChunk C
 	if err != nil {
 		return bashResult{}, WrapError("shell_unavailable", "select shell runtime", err)
 	}
+	if input.PTY {
+		command, err = newPTYShellCommand(runtimePaths, input.Command)
+		if err != nil {
+			return bashResult{}, WrapError("shell_unavailable", "select interactive shell runtime", err)
+		}
+	}
+	decoder, err := newOutputDecoder(input.Encoding)
+	if err != nil {
+		return bashResult{}, NewError("invalid_input", err.Error())
+	}
 	command.Dir = s.paths.Root()
 	command.Env = shellEnvironment(runtimePaths.Root, s.paths.Root())
 	command.Stdout = collector
 	command.Stderr = collector
+	collector.decoder = decoder
+	if input.PTY {
+		if inputReader == nil {
+			return bashResult{}, NewError("invalid_input", "interactive input is required")
+		}
+		exitCode, runErr := runManagedPTY(ctx, command, inputReader, input.Width, input.Height, collector)
+		return s.finishBashResult(ctx, timeout, runtimePaths.ShellProfile, collector, exitCode, runErr)
+	}
 	script := buildScript(input.Command)
 	exitCode, runErr := runManaged(ctx, command, strings.NewReader(script))
+	return s.finishBashResult(ctx, timeout, runtimePaths.ShellProfile, collector, exitCode, runErr)
+}
+
+func (s *Service) finishBashResult(ctx context.Context, timeout time.Duration, shellProfile string, collector *outputCollector, exitCode int, runErr error) (bashResult, error) {
 	output, encoded, truncated := collector.Snapshot()
 	result := bashResult{
 		Output:       output,
@@ -67,7 +93,7 @@ func (s *Service) executeBash(parent context.Context, rawInput []byte, onChunk C
 		ExitCode:     exitCode,
 		Truncated:    truncated,
 		TimedOut:     errors.Is(ctx.Err(), context.DeadlineExceeded),
-		ShellProfile: runtimePaths.ShellProfile,
+		ShellProfile: shellProfile,
 	}
 	if ctx.Err() != nil {
 		code := "aborted"
@@ -92,6 +118,16 @@ func newShellCommand(paths runtimebundle.Paths) (*exec.Cmd, error) {
 	}
 	if paths.Bash != "" {
 		return exec.Command(paths.Bash, "--noprofile", "--norc", "-s"), nil
+	}
+	return nil, errors.New("no shell runtime is configured")
+}
+
+func newPTYShellCommand(paths runtimebundle.Paths, command string) (*exec.Cmd, error) {
+	if runtime.GOOS == "windows" && paths.BusyBox != "" {
+		return exec.Command(paths.BusyBox, "sh", "-c", command), nil
+	}
+	if paths.Bash != "" {
+		return exec.Command(paths.Bash, "--noprofile", "--norc", "-c", command), nil
 	}
 	return nil, errors.New("no shell runtime is configured")
 }
@@ -172,7 +208,7 @@ type outputCollector struct {
 }
 
 func newOutputCollector(maxBytes int, onChunk ChunkWriter) *outputCollector {
-	return &outputCollector{maxBytes: maxBytes, onChunk: onChunk, decoder: newOutputDecoder()}
+	return &outputCollector{maxBytes: maxBytes, onChunk: onChunk}
 }
 
 func (w *outputCollector) Write(data []byte) (int, error) {

@@ -5,22 +5,25 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
+	"pi-remote/internal/buildinfo"
 	"pi-remote/internal/gateway"
 	"pi-remote/internal/protocol"
 	"pi-remote/internal/tool"
 	"pi-remote/internal/worker"
 )
-
-const version = "0.1.0"
 
 type toolFlags struct {
 	root             string
@@ -48,7 +51,7 @@ func run(arguments []string) error {
 	case "worker":
 		return runWorker(arguments[1:])
 	case "version":
-		fmt.Println(version)
+		fmt.Println(buildinfo.Version)
 		return nil
 	case "help", "-h", "--help":
 		printUsage()
@@ -97,8 +100,9 @@ func runServer(arguments []string) error {
 	ctx, stop := signalContext()
 	defer stop()
 	serverError := make(chan error, 1)
+	log.Printf("gateway listening on %s; local workspace %s", *listen, tools.Root())
+	printClientEnvironment(os.Stdout, *listen, *token, *tlsCert != "" && *tlsKey != "")
 	go func() {
-		log.Printf("gateway listening on %s; local workspace %s", *listen, tools.Root())
 		serverError <- server.ListenAndServe()
 	}()
 	select {
@@ -187,6 +191,84 @@ func requireToken(token string) error {
 
 func signalContext() (context.Context, context.CancelFunc) {
 	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+}
+
+func printClientEnvironment(output io.Writer, listenAddress, token string, tlsEnabled bool) {
+	clientURL, err := buildClientURL(listenAddress, tlsEnabled, preferredLocalHost)
+	if err != nil {
+		return
+	}
+	fmt.Fprintln(output, "# ________________________ Gateway ________________________")
+	fmt.Fprintln(output)
+	fmt.Fprintln(output, "# Local CLI")
+	fmt.Fprintf(output, "export PI_REMOTE_URL=%s\n", shellQuote(clientURL))
+	fmt.Fprintf(output, "export PI_REMOTE_TOKEN=%s\n", shellQuote(token))
+	fmt.Fprintln(output)
+	fmt.Fprintln(output, "# Pi")
+	fmt.Fprintf(output, "/remote connect %s %s\n", clientURL, token)
+}
+
+func buildClientURL(listenAddress string, tlsEnabled bool, wildcardHost func() string) (string, error) {
+	host, port, err := net.SplitHostPort(listenAddress)
+	if err != nil {
+		return "", fmt.Errorf("parse listen address: %w", err)
+	}
+	if isWildcardHost(host) {
+		host = wildcardHost()
+	}
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	scheme := "http"
+	if tlsEnabled {
+		scheme = "https"
+	}
+	return (&url.URL{Scheme: scheme, Host: net.JoinHostPort(host, port)}).String(), nil
+}
+
+func preferredLocalHost() string {
+	addresses, err := net.InterfaceAddrs()
+	if err != nil {
+		return "127.0.0.1"
+	}
+	var fallback string
+	for _, address := range addresses {
+		ip := addressIP(address)
+		if ip == nil || ip.IsLoopback() || !ip.IsGlobalUnicast() {
+			continue
+		}
+		if ip4 := ip.To4(); ip4 != nil {
+			if ip4.IsPrivate() {
+				return ip4.String()
+			}
+			if fallback == "" {
+				fallback = ip4.String()
+			}
+		}
+	}
+	if fallback != "" {
+		return fallback
+	}
+	return "127.0.0.1"
+}
+
+func addressIP(address net.Addr) net.IP {
+	switch value := address.(type) {
+	case *net.IPNet:
+		return value.IP
+	case *net.IPAddr:
+		return value.IP
+	default:
+		return nil
+	}
+}
+
+func isWildcardHost(host string) bool {
+	return host == "" || host == "0.0.0.0" || host == "::"
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 func printUsage() {

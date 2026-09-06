@@ -44,6 +44,7 @@ func New(config Config) *Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", server.handleHealth)
 	mux.HandleFunc("/v1/workers/connect", server.handleWorkerConnect)
+	mux.HandleFunc("/v1/terminal", server.handleTerminal)
 	mux.HandleFunc("/v1/targets", server.requireAuth(server.handleTargets))
 	mux.HandleFunc("/v1/rpc", server.requireAuth(server.handleRPC))
 	server.http = &http.Server{
