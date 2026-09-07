@@ -66,8 +66,6 @@ func runServer(arguments []string) error {
 	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
 	listen := flags.String("listen", "0.0.0.0:8787", "HTTP listen address")
 	token := flags.String("token", os.Getenv("PI_REMOTE_TOKEN"), "shared encryption token (or PI_REMOTE_TOKEN)")
-	tlsCert := flags.String("tls-cert", "", "TLS certificate file")
-	tlsKey := flags.String("tls-key", "", "TLS private key file")
 	toolOptions := addToolFlags(flags)
 	if err := flags.Parse(arguments); err != nil {
 		return err
@@ -83,12 +81,10 @@ func runServer(arguments []string) error {
 	server := gateway.New(gateway.Config{
 		ListenAddress: *listen,
 		Token:         *token,
-		TLSCert:       *tlsCert,
-		TLSKey:        *tlsKey,
-		LocalTools:    tools,
-		LocalInfo: protocol.Hello{
+		RemoteTools:   tools,
+		RemoteInfo: protocol.Hello{
 			ProtocolVersion: protocol.Version,
-			WorkerID:        "local",
+			WorkerID:        "remote",
 			OS:              runtime.GOOS,
 			Arch:            runtime.GOARCH,
 			Hostname:        hostname,
@@ -101,7 +97,7 @@ func runServer(arguments []string) error {
 	defer stop()
 	serverError := make(chan error, 1)
 	log.Printf("gateway listening on %s; local workspace %s", *listen, tools.Root())
-	printClientEnvironment(os.Stdout, *listen, *token, *tlsCert != "" && *tlsKey != "")
+	printClientEnvironment(os.Stdout, *listen, *token)
 	go func() {
 		serverError <- server.ListenAndServe()
 	}()
@@ -120,7 +116,7 @@ func runServer(arguments []string) error {
 
 func runWorker(arguments []string) error {
 	flags := flag.NewFlagSet("worker", flag.ContinueOnError)
-	serverURL := flags.String("server", "", "gateway URL, for example wss://gateway.example")
+	serverURL := flags.String("server", "", "gateway URL, for example ws://gateway.example")
 	token := flags.String("token", os.Getenv("PI_REMOTE_TOKEN"), "shared encryption token (or PI_REMOTE_TOKEN)")
 	workerID := flags.String("id", "", "stable worker id (defaults to hostname)")
 	toolOptions := addToolFlags(flags)
@@ -193,8 +189,8 @@ func signalContext() (context.Context, context.CancelFunc) {
 	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 }
 
-func printClientEnvironment(output io.Writer, listenAddress, token string, tlsEnabled bool) {
-	clientURL, err := buildClientURL(listenAddress, tlsEnabled, preferredLocalHost)
+func printClientEnvironment(output io.Writer, listenAddress, token string) {
+	clientURL, err := buildClientURL(listenAddress, preferredLocalHost)
 	if err != nil {
 		return
 	}
@@ -208,7 +204,7 @@ func printClientEnvironment(output io.Writer, listenAddress, token string, tlsEn
 	fmt.Fprintf(output, "/remote connect %s %s\n", clientURL, token)
 }
 
-func buildClientURL(listenAddress string, tlsEnabled bool, wildcardHost func() string) (string, error) {
+func buildClientURL(listenAddress string, wildcardHost func() string) (string, error) {
 	host, port, err := net.SplitHostPort(listenAddress)
 	if err != nil {
 		return "", fmt.Errorf("parse listen address: %w", err)
@@ -219,11 +215,7 @@ func buildClientURL(listenAddress string, tlsEnabled bool, wildcardHost func() s
 	if host == "" {
 		host = "127.0.0.1"
 	}
-	scheme := "http"
-	if tlsEnabled {
-		scheme = "https"
-	}
-	return (&url.URL{Scheme: scheme, Host: net.JoinHostPort(host, port)}).String(), nil
+	return (&url.URL{Scheme: "http", Host: net.JoinHostPort(host, port)}).String(), nil
 }
 
 func preferredLocalHost() string {

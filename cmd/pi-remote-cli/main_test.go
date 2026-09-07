@@ -8,11 +8,11 @@ import (
 )
 
 func TestParseGlobalOptionsUsesEnvironmentAndFlags(t *testing.T) {
-	t.Setenv("PI_REMOTE_URL", "https://env.example")
+	t.Setenv("PI_REMOTE_URL", "http://env.example")
 	t.Setenv("PI_REMOTE_TOKEN", "environment-token")
 	t.Setenv("PI_REMOTE_TARGET", "environment-worker")
 	options, command, arguments, err := parseGlobalOptions([]string{
-		"--url", "https://flag.example",
+		"--url", "http://flag.example",
 		"--token", "flag-token",
 		"--target", "flag-worker",
 		"read", "hello.txt",
@@ -20,7 +20,7 @@ func TestParseGlobalOptionsUsesEnvironmentAndFlags(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if options.url != "https://flag.example" || options.token != "flag-token" || options.target != "flag-worker" {
+	if options.url != "http://flag.example" || options.token != "flag-token" || options.target != "flag-worker" {
 		t.Fatalf("unexpected options: %+v", options)
 	}
 	if command != "read" || len(arguments) != 1 || arguments[0] != "hello.txt" {
@@ -29,14 +29,14 @@ func TestParseGlobalOptionsUsesEnvironmentAndFlags(t *testing.T) {
 }
 
 func TestParseGlobalOptionsDefaultsToEnvironment(t *testing.T) {
-	t.Setenv("PI_REMOTE_URL", "https://env.example")
+	t.Setenv("PI_REMOTE_URL", "http://env.example")
 	t.Setenv("PI_REMOTE_TOKEN", "environment-token")
 	t.Setenv("PI_REMOTE_TARGET", "environment-worker")
 	options, command, _, err := parseGlobalOptions([]string{"targets"}, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if options.url != "https://env.example" || options.token != "environment-token" || options.target != "environment-worker" || command != "targets" {
+	if options.url != "http://env.example" || options.token != "environment-token" || options.target != "environment-worker" || command != "targets" {
 		t.Fatalf("unexpected parse result: %+v, %q", options, command)
 	}
 }

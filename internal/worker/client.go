@@ -119,11 +119,9 @@ func NormalizeServerURL(value string) (string, error) {
 	switch parsed.Scheme {
 	case "http":
 		parsed.Scheme = "ws"
-	case "https":
-		parsed.Scheme = "wss"
-	case "ws", "wss":
+	case "ws":
 	default:
-		return "", errors.New("server URL scheme must be http, https, ws, or wss")
+		return "", errors.New("server URL scheme must use http or ws")
 	}
 	if parsed.Host == "" {
 		return "", errors.New("server URL must include a host")

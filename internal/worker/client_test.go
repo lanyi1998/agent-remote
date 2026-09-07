@@ -3,11 +3,11 @@ package worker
 import "testing"
 
 func TestNormalizeServerURL(t *testing.T) {
-	value, err := NormalizeServerURL("https://gateway.example")
+	value, err := NormalizeServerURL("http://gateway.example")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if value != "wss://gateway.example/v1/workers/connect" {
+	if value != "ws://gateway.example/v1/workers/connect" {
 		t.Fatalf("unexpected URL %q", value)
 	}
 }

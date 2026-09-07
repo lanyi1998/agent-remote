@@ -67,7 +67,7 @@ func (s *Server) runTerminal(parent context.Context, socket *terminalSocket) err
 	}
 	target := open.Terminal.Target
 	if target == "" {
-		target = "local"
+		target = "remote"
 	}
 	input, err := protocol.DecodePayload(open.Terminal.PayloadB64)
 	if err != nil {
@@ -147,7 +147,7 @@ func (s *Server) runTerminal(parent context.Context, socket *terminalSocket) err
 					return err
 				}
 			case protocol.TerminalResize:
-				if target != "local" {
+				if target != "remote" {
 					if peer, ok := s.hub.Get(target); ok {
 						_ = peer.ResizeTerminal(open.ID, message.Terminal.Width, message.Terminal.Height)
 					}
@@ -162,9 +162,9 @@ func (s *Server) runTerminal(parent context.Context, socket *terminalSocket) err
 }
 
 func (s *Server) executeTerminal(ctx context.Context, target, id, toolName string, input json.RawMessage, inputReader io.Reader, output tool.ChunkWriter, ready chan<- error) terminalExecution {
-	if target == "local" {
+	if target == "remote" {
 		ready <- nil
-		result, err := s.config.LocalTools.ExecuteWithInput(ctx, toolName, input, inputReader, output)
+		result, err := s.config.RemoteTools.ExecuteWithInput(ctx, toolName, input, inputReader, output)
 		if err != nil {
 			return terminalExecution{exitCode: -1, err: protocolError(err)}
 		}
@@ -194,7 +194,7 @@ func (s *Server) forwardTerminalInput(ctx context.Context, target, id, encoded s
 	if err != nil {
 		return err
 	}
-	if target == "local" {
+	if target == "remote" {
 		writeDone := make(chan error, 1)
 		go func() {
 			_, writeErr := inputWriter.Write(data)
@@ -215,7 +215,7 @@ func (s *Server) forwardTerminalInput(ctx context.Context, target, id, encoded s
 }
 
 func (s *Server) closeTerminal(target, id string) error {
-	if target == "local" {
+	if target == "remote" {
 		return nil
 	}
 	peer, ok := s.hub.Get(target)

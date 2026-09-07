@@ -31,9 +31,9 @@ type Client struct {
 }
 
 type Targets struct {
-	Local     bool             `json:"local"`
-	LocalInfo protocol.Hello   `json:"local_info"`
-	Workers   []protocol.Hello `json:"workers"`
+	Remote     bool             `json:"remote"`
+	RemoteInfo protocol.Hello   `json:"remote_info"`
+	Workers    []protocol.Hello `json:"workers"`
 }
 
 type RPCError struct {
@@ -61,8 +61,8 @@ func New(config Config) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse remote URL: %w", err)
 	}
-	if baseURL.Scheme != "http" && baseURL.Scheme != "https" {
-		return nil, errors.New("remote URL must use http or https")
+	if baseURL.Scheme != "http" {
+		return nil, errors.New("remote URL must use http")
 	}
 	if baseURL.Host == "" {
 		return nil, errors.New("remote URL must include a host")

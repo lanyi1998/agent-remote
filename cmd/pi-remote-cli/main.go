@@ -96,7 +96,7 @@ func parseGlobalOptions(arguments []string, errorOutput io.Writer) (globalOption
 	options := globalOptions{}
 	flags.StringVar(&options.url, "url", os.Getenv("PI_REMOTE_URL"), "Gateway URL (or PI_REMOTE_URL)")
 	flags.StringVar(&options.token, "token", os.Getenv("PI_REMOTE_TOKEN"), "shared token (or PI_REMOTE_TOKEN)")
-	flags.StringVar(&options.target, "target", envOrDefault("PI_REMOTE_TARGET", "local"), "target Worker ID (or PI_REMOTE_TARGET)")
+	flags.StringVar(&options.target, "target", envOrDefault("PI_REMOTE_TARGET", "remote"), "target Worker ID (or PI_REMOTE_TARGET)")
 	flags.BoolVar(&options.raw, "raw", false, "print read/bash content instead of JSON")
 	flags.DurationVar(&options.requestTimeout, "request-timeout", 0, "whole-request timeout, for example 2m (default: none)")
 	flags.Usage = func() { printUsage(errorOutput) }
@@ -508,7 +508,7 @@ Usage:
 Global flags (must precede the command):
   --url URL              Gateway URL; defaults to PI_REMOTE_URL
   --token TOKEN          shared token; defaults to PI_REMOTE_TOKEN
-  --target ID            local or Worker ID; defaults to PI_REMOTE_TARGET or local
+  --target ID            remote or Worker ID; defaults to PI_REMOTE_TARGET or remote
   --raw                  print raw content for read and bash
   --request-timeout D    whole-request timeout such as 30s or 2m
 

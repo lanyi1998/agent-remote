@@ -7,7 +7,7 @@ import (
 )
 
 func TestBuildClientURLReplacesWildcardHost(t *testing.T) {
-	got, err := buildClientURL("0.0.0.0:8787", false, func() string { return "192.168.3.219" })
+	got, err := buildClientURL("0.0.0.0:8787", func() string { return "192.168.3.219" })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -16,19 +16,9 @@ func TestBuildClientURLReplacesWildcardHost(t *testing.T) {
 	}
 }
 
-func TestBuildClientURLUsesHTTPSWithTLS(t *testing.T) {
-	got, err := buildClientURL("127.0.0.1:9443", true, func() string { return "unused" })
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != "https://127.0.0.1:9443" {
-		t.Fatalf("client URL = %q", got)
-	}
-}
-
 func TestPrintClientEnvironmentUsesShellQuoting(t *testing.T) {
 	var output bytes.Buffer
-	printClientEnvironment(&output, "gateway.example:8787", "token with 'quote'", false)
+	printClientEnvironment(&output, "gateway.example:8787", "token with 'quote'")
 	want := "# ________________________ Gateway ________________________\n" +
 		"\n" +
 		"# Local CLI\n" +

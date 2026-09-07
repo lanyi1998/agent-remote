@@ -37,8 +37,8 @@ interface TargetInfo {
 }
 
 interface TargetsResponse {
-	local: boolean;
-	local_info: TargetInfo;
+	remote: boolean;
+	remote_info: TargetInfo;
 	workers: TargetInfo[];
 }
 
@@ -318,7 +318,7 @@ const writeSchema = Type.Object({
 
 export default function piRemoteExtension(pi: ExtensionAPI) {
 	pi.registerFlag("pi-remote-url", {
-		description: "Pi remote Gateway URL (HTTP or HTTPS)",
+		description: "Pi remote Gateway URL (HTTP)",
 		type: "string",
 	});
 	pi.registerFlag("pi-remote-token", {
@@ -458,14 +458,14 @@ export default function piRemoteExtension(pi: ExtensionAPI) {
 		if (flagToken) state.token = flagToken;
 		if (flagTarget) {
 			state.enabled = flagTarget !== "off";
-			state.target = internalTargetID(flagTarget);
+			state.target = flagTarget;
 		} else if (flagURL && state.target === "off") {
 			state.enabled = true;
-			state.target = "local";
+			state.target = "remote";
 		}
 		if (!flagTarget && environmentTarget) {
 			state.enabled = environmentTarget !== "off";
-			state.target = internalTargetID(environmentTarget);
+			state.target = environmentTarget;
 		}
 		const notedState = withTargetNote(state);
 		if (notedState !== state) pi.appendEntry(STATE_ENTRY, persistedState(notedState));
@@ -708,7 +708,7 @@ function parseConnectArguments(args: string[]): ConnectArguments | undefined {
 	const token = args[0];
 	if (!token) return undefined;
 	if (args[1] !== "--worker") {
-		return { target: "local", token, note: args.slice(1).join(" ") || undefined };
+		return { target: "remote", token, note: args.slice(1).join(" ") || undefined };
 	}
 	if (!args[2]) return undefined;
 	return { target: args[2], token, note: args.slice(3).join(" ") || undefined };
@@ -794,9 +794,8 @@ function createRemoteBashOperations(
 function normalizeGatewayURL(value: string): string {
 	const parsed = new URL(value);
 	if (parsed.protocol === "ws:") parsed.protocol = "http:";
-	if (parsed.protocol === "wss:") parsed.protocol = "https:";
-	if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-		throw new Error("Gateway URL must use HTTP, HTTPS, WS, or WSS");
+	if (parsed.protocol !== "http:") {
+		throw new Error("Gateway URL must use HTTP or WS");
 	}
 	parsed.pathname = parsed.pathname.replace(/\/v1\/workers\/connect\/?$/, "").replace(/\/$/, "");
 	parsed.search = "";
@@ -830,7 +829,7 @@ function stateForRemoteConnection(
 	connection: RemoteConnection,
 	preferCurrentToken = true,
 ): RuntimeState {
-	const target = internalTargetID(connection.target);
+	const target = connection.target;
 	return withTargetNote(
 		{
 			...state,
@@ -876,10 +875,10 @@ async function saveRemoteStore(store: RemoteStore): Promise<void> {
 
 async function saveActiveRemoteConnection(state: RuntimeState): Promise<void> {
 	const store = await loadRemoteStore();
-	const target = internalTargetID(state.target);
+	const target = state.target;
 	const note = targetNote(state);
 	const index = store.connections.findIndex(
-		(connection) => connection.url === state.url && internalTargetID(connection.target) === target,
+		(connection) => connection.url === state.url && connection.target === target,
 	);
 	const connection: RemoteConnection = index >= 0
 		? { ...store.connections[index], url: state.url, target, note, token: state.token }
@@ -928,7 +927,7 @@ function parseRemoteConnection(value: unknown, index: number): RemoteConnection 
 	return {
 		id: value.id,
 		url: normalizeGatewayURL(value.url),
-		target: internalTargetID(value.target),
+		target: value.target,
 		note: value.note.trim(),
 		token: value.token,
 	};
@@ -992,7 +991,7 @@ function showRemoteCommandHelp(ctx: ExtensionCommandContext): void {
 }
 
 function savedTargetLabel(target: string): string {
-	return internalTargetID(target) === "local" ? "Gateway machine" : `Worker ${target}`;
+	return target === "remote" ? "Gateway machine" : `Worker ${target}`;
 }
 
 function randomConnectionID(): string {
@@ -1035,12 +1034,8 @@ function persistedState(state: RuntimeState): PersistedState {
 }
 
 function findTarget(targets: TargetsResponse, target: string): TargetInfo | undefined {
-	if (target === "local") return targets.local ? targets.local_info : undefined;
+	if (target === "remote") return targets.remote ? targets.remote_info : undefined;
 	return targets.workers.find((worker) => worker.worker_id === target);
-}
-
-function internalTargetID(target: string): string {
-	return target === "gateway" ? "local" : target;
 }
 
 function readDetails(result: ReadResult): Omit<ReadResult, "content" | "content_base64"> {
@@ -1086,8 +1081,8 @@ function updateStatus(ctx: ExtensionContext, state: RuntimeState) {
 
 function targetSummary(state: RuntimeState, localCwd: string): string {
 	if (!state.enabled) return `Execution target: Pi local machine (${localCwd})`;
-	const direction = state.target === "local" ? "forward" : "reverse";
-	const route = state.target === "local" ? "Gateway machine" : `Worker ${state.target}`;
+	const direction = state.target === "remote" ? "forward" : "reverse";
+	const route = state.target === "remote" ? "Gateway machine" : `Worker ${state.target}`;
 	const info = state.info;
 	if (!info) return `Execution target: ${targetNote(state)} (${route}, ${direction}, offline: ${state.lastError ?? "unknown"})`;
 	return `Execution target: ${targetNote(state)} (${route}, ${direction}) ${info.hostname} ${info.os}/${info.arch}, root=${info.root}, shell=${info.shell_profile}`;
@@ -1102,12 +1097,12 @@ function targetPrompt(state: RuntimeState, localCwd: string): string {
 			"- read, bash, edit, and write operate on this local machine.",
 		].join("\n");
 	}
-	const direction = state.target === "local" ? "forward (Pi connects to the target Gateway)" : "reverse (Worker connects out to the Gateway)";
+	const direction = state.target === "remote" ? "forward (Pi connects to the target Gateway)" : "reverse (Worker connects out to the Gateway)";
 	const info = state.info;
 	return [
 		"PI REMOTE EXECUTION TARGET:",
 		`- User note: ${targetNote(state)}`,
-		`- Route: ${state.target === "local" ? "Gateway machine" : `Worker ${state.target}`}`,
+		`- Route: ${state.target === "remote" ? "Gateway machine" : `Worker ${state.target}`}`,
 		`- Connection: ${direction}`,
 		`- Gateway: ${state.url}`,
 		`- Status: ${state.lastError ? `offline: ${state.lastError}` : "online"}`,
@@ -1154,5 +1149,5 @@ function randomTargetNote(): string {
 
 function targetNote(state: RuntimeState): string {
 	if (!state.enabled) return "Pi local machine";
-	return state.targetNotes[state.target] ?? (state.target === "local" ? "Gateway machine" : state.target);
+	return state.targetNotes[state.target] ?? (state.target === "remote" ? "Gateway machine" : state.target);
 }

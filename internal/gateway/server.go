@@ -26,10 +26,8 @@ const maxRequestBytes = 64 * 1024 * 1024
 type Config struct {
 	ListenAddress string
 	Token         string
-	TLSCert       string
-	TLSKey        string
-	LocalTools    *tool.Service
-	LocalInfo     protocol.Hello
+	RemoteTools   *tool.Service
+	RemoteInfo    protocol.Hello
 }
 
 type Server struct {
@@ -57,12 +55,6 @@ func New(config Config) *Server {
 }
 
 func (s *Server) ListenAndServe() error {
-	if s.config.TLSCert != "" || s.config.TLSKey != "" {
-		if s.config.TLSCert == "" || s.config.TLSKey == "" {
-			return errors.New("both --tls-cert and --tls-key are required")
-		}
-		return s.http.ListenAndServeTLS(s.config.TLSCert, s.config.TLSKey)
-	}
 	return s.http.ListenAndServe()
 }
 
@@ -81,9 +73,9 @@ func (s *Server) handleHealth(response http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) handleTargets(response http.ResponseWriter, _ *http.Request) {
 	writeJSON(response, http.StatusOK, map[string]interface{}{
-		"local":      true,
-		"local_info": s.config.LocalInfo,
-		"workers":    s.hub.List(),
+		"remote":      true,
+		"remote_info": s.config.RemoteInfo,
+		"workers":     s.hub.List(),
 	})
 }
 
@@ -104,7 +96,7 @@ func (s *Server) handleRPC(response http.ResponseWriter, request *http.Request) 
 		rpcRequest.ID = newRequestID()
 	}
 	if rpcRequest.Target == "" {
-		rpcRequest.Target = "local"
+		rpcRequest.Target = "remote"
 	}
 	if rpcRequest.Tool == "" || len(rpcRequest.Input) == 0 {
 		writeRPCError(response, http.StatusBadRequest, rpcRequest.ID, &protocol.RPCError{Code: "invalid_request", Message: "tool and input are required"})
@@ -123,8 +115,8 @@ func (s *Server) handleRPC(response http.ResponseWriter, request *http.Request) 
 }
 
 func (s *Server) execute(ctx context.Context, request protocol.RPCRequest) (json.RawMessage, *protocol.RPCError, error) {
-	if request.Target == "local" {
-		result, err := s.config.LocalTools.Execute(ctx, request.Tool, request.Input, nil)
+	if request.Target == "remote" {
+		result, err := s.config.RemoteTools.Execute(ctx, request.Tool, request.Input, nil)
 		if err != nil {
 			return nil, protocolError(err), nil
 		}

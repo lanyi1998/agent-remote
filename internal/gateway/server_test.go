@@ -30,11 +30,11 @@ func TestSecureRPC(t *testing.T) {
 		t.Fatal(err)
 	}
 	const token = "a-strong-random-token-for-tests-only"
-	server := New(Config{Token: token, LocalTools: tools})
+	server := New(Config{Token: token, RemoteTools: tools})
 
 	requestValue := protocol.RPCRequest{
 		ID:     "request-1",
-		Target: "local",
+		Target: "remote",
 		Tool:   "read",
 		Input:  json.RawMessage(`{"path":"hello.txt"}`),
 	}
@@ -86,13 +86,13 @@ func TestSecureRPC(t *testing.T) {
 	}
 }
 
-func TestSecureTerminalRunsLocalPTY(t *testing.T) {
+func TestSecureTerminalRunsRemotePTY(t *testing.T) {
 	tools, err := tool.NewService(tool.ServiceConfig{Root: t.TempDir(), BashPath: "/bin/bash"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	const token = "a-strong-random-token-for-terminal"
-	server := New(Config{Token: token, LocalTools: tools})
+	server := New(Config{Token: token, RemoteTools: tools})
 	httpServer := httptest.NewServer(server.http.Handler)
 	defer httpServer.Close()
 	client, err := remoteclient.New(remoteclient.Config{BaseURL: httpServer.URL, Token: token})
@@ -101,7 +101,7 @@ func TestSecureTerminalRunsLocalPTY(t *testing.T) {
 	}
 	var output bytes.Buffer
 	exitCode, err := client.OpenTerminal(context.Background(), remoteclient.TerminalOptions{
-		Target:  "local",
+		Target:  "remote",
 		Tool:    "bash",
 		Command: "printf 'value: '; read value; printf 'received=%s\\n' \"$value\"",
 		Input:   strings.NewReader("hello\n"),
@@ -128,7 +128,7 @@ func TestSecureTerminalRunsWorkerPTY(t *testing.T) {
 		t.Fatal(err)
 	}
 	const token = "a-strong-random-token-for-worker-terminal"
-	server := New(Config{Token: token, LocalTools: gatewayTools})
+	server := New(Config{Token: token, RemoteTools: gatewayTools})
 	httpServer := httptest.NewServer(server.http.Handler)
 	defer httpServer.Close()
 	workerClient := worker.New(worker.Config{

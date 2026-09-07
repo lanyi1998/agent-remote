@@ -24,7 +24,7 @@ func TestTargetsUsesSecureProtocol(t *testing.T) {
 		if len(plaintext) != 0 {
 			t.Fatalf("GET body = %q", plaintext)
 		}
-		return http.StatusOK, Targets{Local: true, LocalInfo: protocol.Hello{WorkerID: "local"}}
+		return http.StatusOK, Targets{Remote: true, RemoteInfo: protocol.Hello{WorkerID: "remote"}}
 	}))
 
 	client, err := New(Config{BaseURL: "http://gateway.test", Token: testToken, HTTPClient: httpClient})
@@ -35,7 +35,7 @@ func TestTargetsUsesSecureProtocol(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !targets.Local || targets.LocalInfo.WorkerID != "local" {
+	if !targets.Remote || targets.RemoteInfo.WorkerID != "remote" {
 		t.Fatalf("unexpected targets: %+v", targets)
 	}
 }
@@ -78,7 +78,7 @@ func TestCallReturnsStructuredRPCError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.Call(context.Background(), "local", "read", map[string]string{"path": "missing"})
+	_, err = client.Call(context.Background(), "remote", "read", map[string]string{"path": "missing"})
 	rpcError, ok := err.(*RPCError)
 	if !ok || rpcError.Code != "path_not_found" || rpcError.StatusCode != http.StatusUnprocessableEntity {
 		t.Fatalf("unexpected error: %#v", err)
@@ -86,7 +86,7 @@ func TestCallReturnsStructuredRPCError(t *testing.T) {
 }
 
 func TestNewRejectsURLPath(t *testing.T) {
-	if _, err := New(Config{BaseURL: "https://example.test/prefix", Token: testToken}); err == nil {
+	if _, err := New(Config{BaseURL: "http://example.test/prefix", Token: testToken}); err == nil {
 		t.Fatal("expected URL path error")
 	}
 }

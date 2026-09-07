@@ -42,11 +42,7 @@ func (c *Client) OpenTerminal(ctx context.Context, options TerminalOptions) (int
 		return -1, err
 	}
 	requestURL := *c.baseURL
-	if requestURL.Scheme == "http" {
-		requestURL.Scheme = "ws"
-	} else {
-		requestURL.Scheme = "wss"
-	}
+	requestURL.Scheme = "ws"
 	requestURL.Path = "/v1/terminal"
 	requestURL.RawPath = ""
 	header, err := transport.ClientAuthHeaders(c.token, http.MethodGet, requestURL.EscapedPath(), nil, time.Now())
