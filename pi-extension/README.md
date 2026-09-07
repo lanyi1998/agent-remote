@@ -37,11 +37,11 @@ pi -e ./pi-extension/index.ts
 Then connect inside Pi:
 
 ```text
-/remote connect https://remote-machine.example:8787 YOUR_TOKEN my-development-machine
+/remote connect http://remote-machine.example:8787 YOUR_TOKEN my-development-machine
 ```
 
-TLS remains useful as defense in depth, and firewall allowlists are recommended
-when exposing the forward listener.
+Gateway traffic is authenticated and encrypted with AES-256-GCM. Firewall
+allowlists are still recommended when exposing the forward listener.
 
 ## Reverse connection
 
@@ -55,7 +55,7 @@ The remote machine connects outward:
 
 ```powershell
 pi-remote.exe worker `
-  --server wss://gateway.example `
+  --server ws://gateway.example `
   --id win7-build-01 `
   --root C:/work
 ```
@@ -85,8 +85,8 @@ Explicit forms are:
 /remote refresh
 /remote list                         # list saved connections and online status
 /remote remove                       # remove a saved connection
-/remote connect https://host:8787 YOUR_TOKEN my-development-machine
-/remote connect https://host:8787 YOUR_TOKEN --worker win7-build-01 windows-build-machine
+/remote connect http://host:8787 YOUR_TOKEN my-development-machine
+/remote connect http://host:8787 YOUR_TOKEN --worker win7-build-01 windows-build-machine
 /remote note my-development-machine
 ```
 
