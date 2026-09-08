@@ -1,5 +1,7 @@
 # agent-remote
 
+[中文](docs/README_ZH.md)
+
 agent-remote lets local agents such as Pi, Codex, and Claude operate remote homelab
 machines or VPS instances. It does not rely on forward-connection services such as
 RDP or SSH. A target machine can still be reached when it has no public IP address
