@@ -142,7 +142,7 @@ aremote connect http://HOST:8787 replace-with-a-long-random-token
 aremote connect http://HOST:8787 replace-with-a-long-random-token --worker office-linux 我的办公机器
 ```
 
-`aremote status` 显示当前目标。`aremote list` 显示全部已保存目标及在线状态；在交互式终端中输入编号即可切换活动目标。使用 `aremote refresh` 重新查询当前目标，使用 `aremote remove` 交互式删除已保存目标；在脚本中使用 `aremote remove TARGET_ID`。
+`aremote status` 显示当前目标。`aremote list` 显示全部已保存目标及在线状态；在交互式终端中输入编号即可切换活动目标。使用 `aremote refresh` 重新查询当前目标，使用 `aremote remove` 交互式删除已保存目标；在脚本中使用 `aremote remove TARGET_ID`。使用 `aremote rename NOTE...` 可在不重新连接的情况下修改当前活动目标的备注。
 
 每条已保存目标都有 `aremote list` 显示的 ID。使用非活动目标时无需改变默认目标，因此多个 Agent 可以并行操作不同机器：
 

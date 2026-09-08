@@ -97,6 +97,8 @@ func run(arguments []string, ioStreams streams) error {
 		return runList(ctx, ioStreams)
 	case "remove":
 		return runRemove(commandArguments, ioStreams)
+	case "rename":
+		return runRename(commandArguments, ioStreams.out)
 	case "refresh":
 		return runRefresh(ctx, ioStreams.out)
 	}
@@ -516,6 +518,7 @@ Target commands:
   aremote status
   aremote list
   aremote remove [TARGET_ID]
+  aremote rename NOTE...
   aremote refresh
 
 Remote tool commands:

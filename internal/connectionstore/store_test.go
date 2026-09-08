@@ -105,3 +105,26 @@ func TestConnectionFindsSavedConnectionByID(t *testing.T) {
 		t.Fatalf("connection = %#v, %t; want %#v", found, ok, connection)
 	}
 }
+
+func TestRenameUpdatesOnlyTheRequestedTargetNote(t *testing.T) {
+	store, first, err := Empty().UpsertActive("http://first.example:8787", "shared-token", "remote", "First")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, second, err := store.UpsertActive("http://second.example:8787", "shared-token", "remote", "Second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, renamed, ok := store.Rename(first.ID, "  Renamed first target  ")
+	if !ok || renamed.Note != "Renamed first target" {
+		t.Fatalf("renamed target = %#v, %t", renamed, ok)
+	}
+	firstUpdated, ok := updated.Connection(first.ID)
+	if !ok || firstUpdated.Note != "Renamed first target" {
+		t.Fatalf("first target = %#v, %t", firstUpdated, ok)
+	}
+	secondUpdated, ok := updated.Connection(second.ID)
+	if !ok || secondUpdated.Note != "Second" {
+		t.Fatalf("second target = %#v, %t", secondUpdated, ok)
+	}
+}

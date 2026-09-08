@@ -165,7 +165,8 @@ Use `aremote status` to inspect the active target. `aremote list` shows every sa
 target and its online status; in an interactive terminal, select its number to make
 it active. Use `aremote refresh` to query the active target again and
 `aremote remove` to interactively remove a saved target; use
-`aremote remove TARGET_ID` in scripts.
+`aremote remove TARGET_ID` in scripts. Use `aremote rename NOTE...` to change the
+active target's note without reconnecting.
 
 Every saved target has an ID displayed by `aremote list`. Use a non-active target
 without changing the default, which lets separate agents operate distinct

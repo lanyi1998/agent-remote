@@ -167,6 +167,31 @@ func runRemove(arguments []string, ioStreams streams) error {
 	return writeJSON(ioStreams.out, map[string]string{"removed": id})
 }
 
+func runRename(arguments []string, output io.Writer) error {
+	if len(arguments) == 0 {
+		return errors.New("usage: aremote rename NOTE...")
+	}
+	repository, err := connectionRepository()
+	if err != nil {
+		return err
+	}
+	store, err := repository.Load()
+	if err != nil {
+		return err
+	}
+	if store.Active == "" {
+		return errNoActiveTarget
+	}
+	updated, target, renamed := store.Rename(store.Active, joinArguments(arguments))
+	if !renamed {
+		return errNoActiveTarget
+	}
+	if err := repository.Save(updated); err != nil {
+		return err
+	}
+	return writeJSON(output, map[string]string{"id": target.ID, "note": target.Note})
+}
+
 func runRefresh(ctx context.Context, output io.Writer) error {
 	connection, err := activeConnection()
 	if err != nil {

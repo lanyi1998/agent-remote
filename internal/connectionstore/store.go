@@ -181,6 +181,19 @@ func (s Store) Remove(id string) (Store, bool) {
 	return Store{Version: storeVersion, Active: active, Connections: connections}, removed
 }
 
+func (s Store) Rename(id, note string) (Store, Connection, bool) {
+	targets := append([]Connection(nil), s.Connections...)
+	for index, target := range targets {
+		if target.ID != id {
+			continue
+		}
+		target.Note = strings.TrimSpace(note)
+		targets[index] = target
+		return Store{Version: storeVersion, Active: s.Active, Connections: targets}, target, true
+	}
+	return s, Connection{}, false
+}
+
 func NormalizeURL(value string) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {

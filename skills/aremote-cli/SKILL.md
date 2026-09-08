@@ -20,6 +20,7 @@ Run `aremote status` to verify the active target. `aremote list` shows saved
 targets and online states; in an interactive terminal, enter a listed number to
 activate it. To select a Worker that has not been saved, run `aremote connect URL
 TOKEN --worker ID [NOTE...]`.
+Use `aremote rename NOTE...` to update the active target's note without reconnecting.
 
 For a one-off operation on another saved machine, pass its ID from `aremote list`
 without changing the active target: `aremote --target TARGET_ID bash
