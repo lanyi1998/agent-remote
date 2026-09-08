@@ -16,8 +16,8 @@ import (
 	"github.com/gorilla/websocket"
 	"golang.org/x/term"
 
-	"pi-remote/internal/protocol"
-	"pi-remote/internal/transport"
+	"agent-remote/internal/protocol"
+	"agent-remote/internal/transport"
 )
 
 type TerminalOptions struct {

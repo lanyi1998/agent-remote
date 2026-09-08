@@ -7,7 +7,7 @@ to the active execution target. It supports both connection directions.
 ## Load it
 
 ```sh
-pi -e /absolute/path/to/pi-remote/pi-extension/index.ts
+pi -e /absolute/path/to/agent-remote/pi-extension/index.ts
 ```
 
 Pi 侧的令牌通过 `/remote connect` 输入，不从环境变量读取。
@@ -17,7 +17,7 @@ AES-256-GCM 加密请求和响应；原始 Token 不会放入网络请求。
 Install it permanently with Pi's extension installer if desired:
 
 ```sh
-pi install /absolute/path/to/pi-remote/pi-extension/index.ts
+pi install /absolute/path/to/agent-remote/pi-extension/index.ts
 ```
 
 ## Forward connection
@@ -25,7 +25,7 @@ pi install /absolute/path/to/pi-remote/pi-extension/index.ts
 The target machine listens for the Gateway API:
 
 ```powershell
-pi-remote.exe serve --listen 0.0.0.0:8787 --root C:/work
+agent-remote.exe serve --listen 0.0.0.0:8787 --root C:/work
 ```
 
 Pi connects directly to that machine; the target defaults to the Gateway machine:
@@ -48,13 +48,13 @@ allowlists are still recommended when exposing the forward listener.
 Run the Gateway beside Pi:
 
 ```sh
-pi-remote serve --listen 127.0.0.1:8787 --root /local/work
+agent-remote serve --listen 127.0.0.1:8787 --root /local/work
 ```
 
 The remote machine connects outward:
 
 ```powershell
-pi-remote.exe worker `
+agent-remote.exe worker `
   --server ws://gateway.example `
   --id win7-build-01 `
   --root C:/work
@@ -97,7 +97,7 @@ stored per saved connection; when omitted, Pi generates a random note automatica
 Successful connections are saved in `~/.pi/agent/remote.json`, including the
 Gateway URL, target, note, and shared token. `/remote list` checks every saved
 connection and lets you select an online one. The file is created with mode
-`0600`; the token can still be overridden by `--pi-remote-token`. Pi starts with
+`0600`; the token can still be overridden by `--agent-remote-token`. Pi starts with
 its local tools; use `/remote connect` or select a connection from `/remote list`
 to enter remote mode. Starting `/new` within the same Pi process keeps the
 current remote target. Use `/remote remove` to delete a saved connection;
@@ -117,6 +117,6 @@ falls back to the Pi host.
 The Gateway URL and initial target can also come from environment variables:
 
 ```text
-PI_REMOTE_URL
-PI_REMOTE_TARGET
+AGENT_REMOTE_URL
+AGENT_REMOTE_TARGET
 ```

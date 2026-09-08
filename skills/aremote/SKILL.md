@@ -1,24 +1,24 @@
 ---
-name: pi-remote-cli
-description: Operate a pi-remote Gateway or Worker through the pi-remote-cli command when a user asks to inspect, execute, or modify a remote machine from a shell or script. Do not use for MCP tool calls or the current local workspace.
+name: aremote
+description: Operate an agent-remote Gateway or Worker through the aremote command when a user asks to inspect, execute, or modify a remote machine from a shell or script. Do not use for MCP tool calls or the current local workspace.
 ---
 
-# pi-remote CLI
+# agent-remote CLI
 
-Use `pi-remote-cli` for work explicitly requested on a remote Gateway or Worker.
+Use `aremote` for work explicitly requested on a remote Gateway or Worker.
 It operates on a different machine from the local workspace; never substitute local
 shell or filesystem commands for a remote request.
 
 ## Connection and targets
 
-The CLI reads `PI_REMOTE_URL` and `PI_REMOTE_TOKEN`, or accepts `--url` and
+The CLI reads `AGENT_REMOTE_URL` and `AGENT_REMOTE_TOKEN`, or accepts `--url` and
 `--token` before the subcommand. Keep the Token out of command output, logs, and
 generated files.
 
-`PI_REMOTE_TARGET` or `--target` selects the execution target. It defaults to
+`AGENT_REMOTE_TARGET` or `--target` selects the execution target. It defaults to
 `remote`, which is the machine running the Gateway. A Worker ID selects a
 reverse-connected Worker. If the requested target is not known, run
-`pi-remote-cli targets` and verify its hostname, workspace root, OS, shell profile,
+`aremote targets` and verify its hostname, workspace root, OS, shell profile,
 and online state before assuming details.
 
 ## Choose commands deliberately
@@ -35,9 +35,9 @@ stdin when their inline or file input option is omitted; prefer stdin for multil
 or quote-sensitive values.
 
 ```sh
-printf '%s\n' 'go test ./...' | pi-remote-cli --target build-host bash --timeout 300
-printf '%s' "$FILE_CONTENT" | pi-remote-cli --target build-host write src/example.txt
-printf '%s' '[{"oldText":"before","newText":"after"}]' | pi-remote-cli --target build-host edit src/example.txt
+printf '%s\n' 'go test ./...' | aremote --target build-host bash --timeout 300
+printf '%s' "$FILE_CONTENT" | aremote --target build-host write src/example.txt
+printf '%s' '[{"oldText":"before","newText":"after"}]' | aremote --target build-host edit src/example.txt
 ```
 
 Remote shell exit codes from 1 through 255 are preserved. Transport and RPC failures

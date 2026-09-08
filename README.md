@@ -1,6 +1,6 @@
-# pi-remote
+# agent-remote
 
-pi-remote lets local agents such as Pi, Codex, and Claude operate remote homelab
+agent-remote lets local agents such as Pi, Codex, and Claude operate remote homelab
 machines or VPS instances. It does not rely on forward-connection services such as
 RDP or SSH. A target machine can still be reached when it has no public IP address
 and is protected by a firewall.
@@ -9,7 +9,7 @@ The source targets compatibility with Windows 7/2008.
 
 ## Features
 
-`pi-remote` supports two connection modes:
+`agent-remote` supports two connection modes:
 
 - Forward connection: run `serve` on the target machine and let Pi connect to it.
 - Reverse connection: run `serve` locally, and let the target machine connect out as
@@ -27,8 +27,8 @@ available.
 Copy the extension into Pi's auto-load directory:
 
 ```sh
-mkdir -p ~/.pi/agent/extensions/pi-remote
-cp pi-extension/index.ts ~/.pi/agent/extensions/pi-remote/index.ts
+mkdir -p ~/.pi/agent/extensions/agent-remote
+cp pi-extension/index.ts ~/.pi/agent/extensions/agent-remote/index.ts
 ```
 
 ## Forward connection
@@ -42,7 +42,7 @@ first successful connection.
 Start the Gateway on the target machine:
 
 ```sh
-./pi-remote-linux-amd64 serve --token 'replace-with-a-long-random-token'
+./agent-remote-linux-amd64 serve --token 'replace-with-a-long-random-token'
 ```
 
 ![image-20260907164221111](https://blog-image.xemails.top/2026/4e76c4a2a5e5f3d5d7bd2492cd2e3c3b.webp)
@@ -83,14 +83,14 @@ Allow TCP port `8787` in the VPS cloud security group and system firewall.
 Start the Gateway on the public VPS:
 
 ```sh
-./pi-remote-linux-amd64 serve \
+./agent-remote-linux-amd64 serve \
   --token 'replace-with-a-long-random-token' \
 ```
 
 Start the Worker on the private-network target machine:
 
 ```sh
-./pi-remote-linux-amd64 worker \
+./agent-remote-linux-amd64 worker \
   --token 'replace-with-a-long-random-token' \
   --server ws://VPS_PUBLIC_IP:8787 \
   --id office-linux
@@ -148,26 +148,26 @@ the same secure protocol.
 
 ## Codex / Claude Code / OpenCode integration
 
-`pi-remote-cli` can be used by any agent that supports command-line tools or standard
+`aremote` can be used by any agent that supports command-line tools or standard
 stdio MCP.
 
 All integration methods use the following variables:
 
 ```sh
-export PI_REMOTE_URL=http://HOST:8787
-export PI_REMOTE_TOKEN=replace-with-a-long-random-token
-export PI_REMOTE_TARGET=remote # optional; remote is the machine running the Gateway
+export AGENT_REMOTE_URL=http://HOST:8787
+export AGENT_REMOTE_TOKEN=replace-with-a-long-random-token
+export AGENT_REMOTE_TARGET=remote # optional; remote is the machine running the Gateway
 ```
 
 ### CLI
 
-Use this when an Agent calls `pi-remote-cli` through a shell. First install the
-repository's `/skills/pi-remote-cli/` into a Skill directory scanned by the Agent.
+Use this when an Agent calls `aremote` through a shell. First install the
+repository's `/skills/aremote/` into a Skill directory scanned by the Agent.
 
 Then explicitly invoke the Skill in the Agent conversation to check the connection:
 
 ```text
-$pi-remote-cli Run id on the remote machine and return the command result.
+$aremote Run id on the remote machine and return the command result.
 ```
 
 ![image-20260907174706466](https://blog-image.xemails.top/2026/e19a373514cfc4dcf3f86dc4651a4609.webp)
@@ -177,11 +177,11 @@ $pi-remote-cli Run id on the remote machine and return the command result.
 Add the MCP settings in Codex:
 
 ```toml
-[mcp_servers.pi-remote]
-command = "/opt/homebrew/bin/pi-remote-cli"
+[mcp_servers.agent-remote]
+command = "/opt/homebrew/bin/aremote"
 args = ["mcp"]
 enabled = true
-env_vars = ["PI_REMOTE_URL", "PI_REMOTE_TOKEN", "PI_REMOTE_TARGET"]
+env_vars = ["AGENT_REMOTE_URL", "AGENT_REMOTE_TOKEN", "AGENT_REMOTE_TARGET"]
 ```
 
 ![image-20260907175607595](https://blog-image.xemails.top/2026/11ce0c39dd2a16cc4bb735ae3f044bf4.webp)
@@ -197,7 +197,7 @@ internal/runtimebundle/assets/
 ```
 
 Windows builds currently support amd64 only. Every file below `windows_amd64`, except
-`_placeholder`, is embedded in `pi-remote.exe`.
+`_placeholder`, is embedded in `agent-remote.exe`.
 
 When the embedded BusyBox runtime is available, the Worker starts
 `busybox.exe sh -s` directly. Commands such as `ls`, `id`, `whoami`, `grep`, and

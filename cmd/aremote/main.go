@@ -16,8 +16,8 @@ import (
 
 	"golang.org/x/term"
 
-	"pi-remote/internal/buildinfo"
-	remoteclient "pi-remote/internal/client"
+	"agent-remote/internal/buildinfo"
+	remoteclient "agent-remote/internal/client"
 )
 
 type globalOptions struct {
@@ -91,12 +91,12 @@ func run(arguments []string, ioStreams streams) error {
 }
 
 func parseGlobalOptions(arguments []string, errorOutput io.Writer) (globalOptions, string, []string, error) {
-	flags := flag.NewFlagSet("pi-remote-cli", flag.ContinueOnError)
+	flags := flag.NewFlagSet("aremote", flag.ContinueOnError)
 	flags.SetOutput(errorOutput)
 	options := globalOptions{}
-	flags.StringVar(&options.url, "url", os.Getenv("PI_REMOTE_URL"), "Gateway URL (or PI_REMOTE_URL)")
-	flags.StringVar(&options.token, "token", os.Getenv("PI_REMOTE_TOKEN"), "shared token (or PI_REMOTE_TOKEN)")
-	flags.StringVar(&options.target, "target", envOrDefault("PI_REMOTE_TARGET", "remote"), "target Worker ID (or PI_REMOTE_TARGET)")
+	flags.StringVar(&options.url, "url", os.Getenv("AGENT_REMOTE_URL"), "Gateway URL (or AGENT_REMOTE_URL)")
+	flags.StringVar(&options.token, "token", os.Getenv("AGENT_REMOTE_TOKEN"), "shared token (or AGENT_REMOTE_TOKEN)")
+	flags.StringVar(&options.target, "target", envOrDefault("AGENT_REMOTE_TARGET", "remote"), "target Worker ID (or AGENT_REMOTE_TARGET)")
 	flags.BoolVar(&options.raw, "raw", false, "print read/bash content instead of JSON")
 	flags.DurationVar(&options.requestTimeout, "request-timeout", 0, "whole-request timeout, for example 2m (default: none)")
 	flags.Usage = func() { printUsage(errorOutput) }
@@ -153,7 +153,7 @@ func runRead(ctx context.Context, client *remoteclient.Client, options globalOpt
 		return err
 	}
 	if flags.NArg() != 1 {
-		return errors.New("usage: pi-remote-cli [global flags] read [--offset N] [--limit N] PATH")
+		return errors.New("usage: aremote [global flags] read [--offset N] [--limit N] PATH")
 	}
 	input := map[string]interface{}{"path": flags.Arg(0)}
 	if *offset != 0 {
@@ -179,7 +179,7 @@ func runFind(ctx context.Context, client *remoteclient.Client, target string, ar
 		return err
 	}
 	if flags.NArg() > 1 {
-		return errors.New("usage: pi-remote-cli [global flags] find [--max-results N] [QUERY]")
+		return errors.New("usage: aremote [global flags] find [--max-results N] [QUERY]")
 	}
 	query := ""
 	if flags.NArg() == 1 {
@@ -295,7 +295,7 @@ func runWrite(ctx context.Context, client *remoteclient.Client, target string, a
 		return err
 	}
 	if flags.NArg() != 1 {
-		return errors.New("usage: pi-remote-cli [global flags] write [--content TEXT|--content-file FILE] PATH")
+		return errors.New("usage: aremote [global flags] write [--content TEXT|--content-file FILE] PATH")
 	}
 	value, err := readOptionValue(*content, *contentFile, ioStreams.in)
 	if err != nil {
@@ -316,7 +316,7 @@ func runEdit(ctx context.Context, client *remoteclient.Client, target string, ar
 		return err
 	}
 	if flags.NArg() != 1 {
-		return errors.New("usage: pi-remote-cli [global flags] edit [--edits JSON|--edits-file FILE] PATH")
+		return errors.New("usage: aremote [global flags] edit [--edits JSON|--edits-file FILE] PATH")
 	}
 	value, err := readOptionValue(*editsJSON, *editsFile, ioStreams.in)
 	if err != nil {
@@ -341,7 +341,7 @@ func runRPC(ctx context.Context, client *remoteclient.Client, target string, arg
 		return err
 	}
 	if flags.NArg() != 1 {
-		return errors.New("usage: pi-remote-cli [global flags] rpc [--input JSON|--input-file FILE] TOOL")
+		return errors.New("usage: aremote [global flags] rpc [--input JSON|--input-file FILE] TOOL")
 	}
 	value, err := readOptionValue(*inputJSON, *inputFile, ioStreams.in)
 	if err != nil {
@@ -492,23 +492,23 @@ func envOrDefault(name, fallback string) string {
 }
 
 func printUsage(output io.Writer) {
-	fmt.Fprintln(output, `pi-remote-cli - control a pi-remote Gateway from scripts and other agents
+	fmt.Fprintln(output, `aremote - control an agent-remote Gateway from scripts and other agents
 
 Usage:
-  pi-remote-cli [global flags] targets
-  pi-remote-cli [global flags] read [--offset N] [--limit N] PATH
-  pi-remote-cli [global flags] find [--max-results N] [QUERY]
-  pi-remote-cli [global flags] bash [--timeout SEC] [--tty] [--encoding NAME] [COMMAND...]
-  pi-remote-cli [global flags] shell [--timeout SEC] [--tty] [--encoding NAME] [COMMAND...]
-  pi-remote-cli [global flags] write [--content TEXT|--content-file FILE] PATH
-  pi-remote-cli [global flags] edit [--edits JSON|--edits-file FILE] PATH
-  pi-remote-cli [global flags] rpc [--input JSON|--input-file FILE] TOOL
-  pi-remote-cli [global flags] mcp
+  aremote [global flags] targets
+  aremote [global flags] read [--offset N] [--limit N] PATH
+  aremote [global flags] find [--max-results N] [QUERY]
+  aremote [global flags] bash [--timeout SEC] [--tty] [--encoding NAME] [COMMAND...]
+  aremote [global flags] shell [--timeout SEC] [--tty] [--encoding NAME] [COMMAND...]
+  aremote [global flags] write [--content TEXT|--content-file FILE] PATH
+  aremote [global flags] edit [--edits JSON|--edits-file FILE] PATH
+  aremote [global flags] rpc [--input JSON|--input-file FILE] TOOL
+  aremote [global flags] mcp
 
 Global flags (must precede the command):
-  --url URL              Gateway URL; defaults to PI_REMOTE_URL
-  --token TOKEN          shared token; defaults to PI_REMOTE_TOKEN
-  --target ID            remote or Worker ID; defaults to PI_REMOTE_TARGET or remote
+  --url URL              Gateway URL; defaults to AGENT_REMOTE_URL
+  --token TOKEN          shared token; defaults to AGENT_REMOTE_TOKEN
+  --target ID            remote or Worker ID; defaults to AGENT_REMOTE_TARGET or remote
   --raw                  print raw content for read and bash
   --request-timeout D    whole-request timeout such as 30s or 2m
 

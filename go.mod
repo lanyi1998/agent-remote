@@ -1,4 +1,4 @@
-module pi-remote
+module agent-remote
 
 go 1.20
 

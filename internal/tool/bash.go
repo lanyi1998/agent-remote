@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"pi-remote/internal/runtimebundle"
+	"agent-remote/internal/runtimebundle"
 )
 
 type bashInput struct {

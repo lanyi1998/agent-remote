@@ -194,7 +194,7 @@ func defaultBaseDir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve user cache directory: %w", err)
 	}
-	return filepath.Join(cacheDir, "PiRemote", "runtime"), nil
+	return filepath.Join(cacheDir, "AgentRemote", "runtime"), nil
 }
 
 func ensureInstalled(target, sourceRoot string, files []string) error {

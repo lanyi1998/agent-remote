@@ -23,7 +23,7 @@ import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { Type } from "typebox";
 
-const STATE_ENTRY = "pi-remote-state";
+const STATE_ENTRY = "agent-remote-state";
 
 interface TargetInfo {
 	protocol_version: number;
@@ -164,7 +164,7 @@ function base64UrlDecode(value: string): Buffer {
 
 function deriveSecureKey(token: string, purpose: string): Buffer {
 	return createHash("sha256")
-		.update(`pi-remote/secure/v1/${purpose}\0`, "utf8")
+		.update(`agent-remote/secure/v1/${purpose}\0`, "utf8")
 		.update(token, "utf8")
 		.digest();
 }
@@ -227,9 +227,9 @@ function createRequestAuth(token: string, method: string, path: string, body: Ui
 	return {
 		nonce,
 		headers: {
-			"X-Pi-Remote-Nonce": nonce,
-			"X-Pi-Remote-Timestamp": timestamp,
-			"X-Pi-Remote-Proof": proof,
+			"X-Agent-Remote-Nonce": nonce,
+			"X-Agent-Remote-Timestamp": timestamp,
+			"X-Agent-Remote-Proof": proof,
 		},
 	};
 }
@@ -258,7 +258,7 @@ class RPCClient {
 	}
 
 	private async request<T>(path: string, init: RequestInit): Promise<T> {
-		if (!this.token) throw new Error("PI remote token is not configured");
+		if (!this.token) throw new Error("Agent Remote token is not configured");
 		const url = `${this.baseURL}${path}`;
 		const parsedURL = new URL(url);
 		const method = (init.method ?? "GET").toUpperCase();
@@ -273,7 +273,7 @@ class RPCClient {
 		const response = await fetch(url, { ...init, body: wireBody, headers });
 		let body: unknown;
 		const rawBody = Buffer.from(await response.arrayBuffer());
-		const responseBody = response.headers.get("X-Pi-Remote-Encrypted") === "1"
+		const responseBody = response.headers.get("X-Agent-Remote-Encrypted") === "1"
 			? decryptSecureEnvelope(this.token, httpServerPurpose, httpSecureAAD("response", method, parsedURL.pathname, auth.nonce), rawBody.toString("utf8")).toString("utf8")
 			: rawBody.toString("utf8");
 		try {
@@ -316,16 +316,16 @@ const writeSchema = Type.Object({
 	content: Type.String({ description: "Complete UTF-8 file content" }),
 });
 
-export default function piRemoteExtension(pi: ExtensionAPI) {
-	pi.registerFlag("pi-remote-url", {
-		description: "Pi remote Gateway URL (HTTP)",
+export default function agentRemoteExtension(pi: ExtensionAPI) {
+	pi.registerFlag("agent-remote-url", {
+		description: "Agent Remote Gateway URL (HTTP)",
 		type: "string",
 	});
-	pi.registerFlag("pi-remote-token", {
-		description: "Pi remote encryption token override (normally set by /remote connect)",
+	pi.registerFlag("agent-remote-token", {
+		description: "Agent Remote encryption token override (normally set by /remote connect)",
 		type: "string",
 	});
-	pi.registerFlag("pi-remote-target", {
+	pi.registerFlag("agent-remote-target", {
 		description: "Initial target: off, gateway, or a reverse Worker ID",
 		type: "string",
 	});
@@ -450,10 +450,10 @@ export default function piRemoteExtension(pi: ExtensionAPI) {
 		} else {
 			state = await restoreActiveRemoteConnection(ctx, state);
 		}
-		const flagURL = pi.getFlag("pi-remote-url") as string | undefined;
-		const flagToken = pi.getFlag("pi-remote-token") as string | undefined;
-		const flagTarget = pi.getFlag("pi-remote-target") as string | undefined;
-		const environmentTarget = process.env.PI_REMOTE_TARGET;
+		const flagURL = pi.getFlag("agent-remote-url") as string | undefined;
+		const flagToken = pi.getFlag("agent-remote-token") as string | undefined;
+		const flagTarget = pi.getFlag("agent-remote-target") as string | undefined;
+		const environmentTarget = process.env.AGENT_REMOTE_TARGET;
 		if (flagURL) state.url = normalizeGatewayURL(flagURL);
 		if (flagToken) state.token = flagToken;
 		if (flagTarget) {
@@ -535,7 +535,7 @@ export default function piRemoteExtension(pi: ExtensionAPI) {
 			}
 			if (parts[0] === "refresh") {
 				if (state.enabled) await refreshSelectedTarget(ctx, true);
-				else ctx.ui.notify("Pi remote is already off", "info");
+				else ctx.ui.notify("Agent Remote is already off", "info");
 				return;
 			}
 			if (parts[0]) {
@@ -806,7 +806,7 @@ function normalizeGatewayURL(value: string): string {
 function createInitialState(): RuntimeState {
 	return {
 		enabled: false,
-		url: normalizeGatewayURL(process.env.PI_REMOTE_URL ?? "http://127.0.0.1:8787"),
+		url: normalizeGatewayURL(process.env.AGENT_REMOTE_URL ?? "http://127.0.0.1:8787"),
 		target: "off",
 		token: "",
 		targetNotes: {},
@@ -976,7 +976,7 @@ function formatRemoteConnectionStatus(status: RemoteConnectionStatus, activeID?:
 function showRemoteCommandHelp(ctx: ExtensionCommandContext): void {
 	ctx.ui.notify(
 		[
-			"Pi remote subcommands:",
+			"Agent Remote subcommands:",
 			"/remote connect <gateway> <token> [note...]",
 			"/remote connect <gateway> <token> --worker <worker-id> [note...]",
 			"/remote list       list saved connections and their online status",
@@ -1060,7 +1060,7 @@ async function persistAndAnnounce(pi: ExtensionAPI, ctx: ExtensionContext, state
 	ctx.ui.notify(targetSummary(state, localCwd), "info");
 	// The message participates in model context but does not trigger an unsolicited turn.
 	pi.sendMessage(
-		{ customType: "pi-remote-target", content, display: true, details: persistedState(state) },
+		{ customType: "agent-remote-target", content, display: true, details: persistedState(state) },
 		{ deliverAs: "nextTurn" },
 	);
 }
@@ -1072,11 +1072,11 @@ async function persistRemoteConnection(state: RuntimeState): Promise<void> {
 
 function updateStatus(ctx: ExtensionContext, state: RuntimeState) {
 	if (!state.enabled) {
-		ctx.ui.setStatus("pi-remote", ctx.ui.theme.fg("muted", "target: Pi local"));
+		ctx.ui.setStatus("agent-remote", ctx.ui.theme.fg("muted", "target: Pi local"));
 		return;
 	}
 	const suffix = state.lastError ? " offline" : "";
-	ctx.ui.setStatus("pi-remote", ctx.ui.theme.fg(state.lastError ? "error" : "accent", `target: ${targetNote(state)}${suffix}`));
+	ctx.ui.setStatus("agent-remote", ctx.ui.theme.fg(state.lastError ? "error" : "accent", `target: ${targetNote(state)}${suffix}`));
 }
 
 function targetSummary(state: RuntimeState, localCwd: string): string {
@@ -1091,7 +1091,7 @@ function targetSummary(state: RuntimeState, localCwd: string): string {
 function targetPrompt(state: RuntimeState, localCwd: string): string {
 	if (!state.enabled) {
 		return [
-			"PI REMOTE EXECUTION TARGET:",
+			"AGENT REMOTE EXECUTION TARGET:",
 			`- Mode: local Pi process`,
 			`- Working directory: ${localCwd}`,
 			"- read, bash, edit, and write operate on this local machine.",
@@ -1100,7 +1100,7 @@ function targetPrompt(state: RuntimeState, localCwd: string): string {
 	const direction = state.target === "remote" ? "forward (Pi connects to the target Gateway)" : "reverse (Worker connects out to the Gateway)";
 	const info = state.info;
 	return [
-		"PI REMOTE EXECUTION TARGET:",
+		"AGENT REMOTE EXECUTION TARGET:",
 		`- User note: ${targetNote(state)}`,
 		`- Route: ${state.target === "remote" ? "Gateway machine" : `Worker ${state.target}`}`,
 		`- Connection: ${direction}`,

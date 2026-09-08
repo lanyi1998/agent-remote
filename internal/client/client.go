@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"pi-remote/internal/protocol"
-	"pi-remote/internal/transport"
+	"agent-remote/internal/protocol"
+	"agent-remote/internal/transport"
 )
 
 const maxResponseBytes = 64 * 1024 * 1024
@@ -181,7 +181,7 @@ func (c *Client) encryptRequest(method, path, requestNonce string, plaintext []b
 }
 
 func (c *Client) decryptResponse(method, path, requestNonce string, response *http.Response, body []byte) ([]byte, error) {
-	if response.Header.Get("X-Pi-Remote-Encrypted") != "1" {
+	if response.Header.Get("X-Agent-Remote-Encrypted") != "1" {
 		return body, nil
 	}
 	envelope, err := transport.UnmarshalEnvelope(body)

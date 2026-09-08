@@ -8,9 +8,9 @@ import (
 )
 
 func TestParseGlobalOptionsUsesEnvironmentAndFlags(t *testing.T) {
-	t.Setenv("PI_REMOTE_URL", "http://env.example")
-	t.Setenv("PI_REMOTE_TOKEN", "environment-token")
-	t.Setenv("PI_REMOTE_TARGET", "environment-worker")
+	t.Setenv("AGENT_REMOTE_URL", "http://env.example")
+	t.Setenv("AGENT_REMOTE_TOKEN", "environment-token")
+	t.Setenv("AGENT_REMOTE_TARGET", "environment-worker")
 	options, command, arguments, err := parseGlobalOptions([]string{
 		"--url", "http://flag.example",
 		"--token", "flag-token",
@@ -29,9 +29,9 @@ func TestParseGlobalOptionsUsesEnvironmentAndFlags(t *testing.T) {
 }
 
 func TestParseGlobalOptionsDefaultsToEnvironment(t *testing.T) {
-	t.Setenv("PI_REMOTE_URL", "http://env.example")
-	t.Setenv("PI_REMOTE_TOKEN", "environment-token")
-	t.Setenv("PI_REMOTE_TARGET", "environment-worker")
+	t.Setenv("AGENT_REMOTE_URL", "http://env.example")
+	t.Setenv("AGENT_REMOTE_TOKEN", "environment-token")
+	t.Setenv("AGENT_REMOTE_TARGET", "environment-worker")
 	options, command, _, err := parseGlobalOptions([]string{"targets"}, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)

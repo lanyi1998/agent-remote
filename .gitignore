@@ -1,8 +1,8 @@
 /bin/
 /\.idea/
-/pi-remote-linux-amd64
+/agent-remote-linux-amd64
 /main
-/pi-remote-cli
+/aremote
 *.DS_Store
 *.exe
 *.test

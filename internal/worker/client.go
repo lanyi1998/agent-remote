@@ -16,9 +16,9 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"pi-remote/internal/protocol"
-	"pi-remote/internal/tool"
-	"pi-remote/internal/transport"
+	"agent-remote/internal/protocol"
+	"agent-remote/internal/tool"
+	"agent-remote/internal/transport"
 )
 
 type Config struct {

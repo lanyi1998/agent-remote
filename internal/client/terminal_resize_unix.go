@@ -11,7 +11,7 @@ import (
 
 	"golang.org/x/term"
 
-	"pi-remote/internal/protocol"
+	"agent-remote/internal/protocol"
 )
 
 func startTerminalResizeForwarder(ctx context.Context, socket *terminalClientSocket, id string, input io.Reader) {

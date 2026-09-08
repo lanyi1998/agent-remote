@@ -16,9 +16,9 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"pi-remote/internal/protocol"
-	"pi-remote/internal/tool"
-	"pi-remote/internal/transport"
+	"agent-remote/internal/protocol"
+	"agent-remote/internal/tool"
+	"agent-remote/internal/transport"
 )
 
 const maxRequestBytes = 64 * 1024 * 1024
@@ -249,7 +249,7 @@ func writeSecureResponse(response http.ResponseWriter, request *http.Request, re
 		}
 	}
 	response.Header().Set("Content-Type", "application/json; charset=utf-8")
-	response.Header().Set("X-Pi-Remote-Encrypted", "1")
+	response.Header().Set("X-Agent-Remote-Encrypted", "1")
 	response.WriteHeader(buffered.statusCode())
 	_, err = response.Write(payload)
 	return err

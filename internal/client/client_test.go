@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"pi-remote/internal/protocol"
-	"pi-remote/internal/transport"
+	"agent-remote/internal/protocol"
+	"agent-remote/internal/transport"
 )
 
 const testToken = "client-test-token"
@@ -145,7 +145,7 @@ func secureHandler(t *testing.T, response responseFactory) http.Handler {
 		if err != nil {
 			t.Fatal(err)
 		}
-		writer.Header().Set("X-Pi-Remote-Encrypted", "1")
+		writer.Header().Set("X-Agent-Remote-Encrypted", "1")
 		writer.WriteHeader(status)
 		_, _ = writer.Write(encoded)
 	})

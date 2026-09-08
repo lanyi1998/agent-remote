@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	remoteclient "pi-remote/internal/client"
-	"pi-remote/internal/protocol"
-	"pi-remote/internal/tool"
-	"pi-remote/internal/transport"
-	"pi-remote/internal/worker"
+	remoteclient "agent-remote/internal/client"
+	"agent-remote/internal/protocol"
+	"agent-remote/internal/tool"
+	"agent-remote/internal/transport"
+	"agent-remote/internal/worker"
 )
 
 func TestSecureRPC(t *testing.T) {
@@ -66,7 +66,7 @@ func TestSecureRPC(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
 	}
-	if response.Header().Get("X-Pi-Remote-Encrypted") != "1" {
+	if response.Header().Get("X-Agent-Remote-Encrypted") != "1" {
 		t.Fatal("response was not marked as encrypted")
 	}
 	responseEnvelope, err := transport.UnmarshalEnvelope(response.Body.Bytes())

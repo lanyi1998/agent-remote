@@ -18,11 +18,11 @@ import (
 	"syscall"
 	"time"
 
-	"pi-remote/internal/buildinfo"
-	"pi-remote/internal/gateway"
-	"pi-remote/internal/protocol"
-	"pi-remote/internal/tool"
-	"pi-remote/internal/worker"
+	"agent-remote/internal/buildinfo"
+	"agent-remote/internal/gateway"
+	"agent-remote/internal/protocol"
+	"agent-remote/internal/tool"
+	"agent-remote/internal/worker"
 )
 
 type toolFlags struct {
@@ -65,7 +65,7 @@ func run(arguments []string) error {
 func runServer(arguments []string) error {
 	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
 	listen := flags.String("listen", "0.0.0.0:8787", "HTTP listen address")
-	token := flags.String("token", os.Getenv("PI_REMOTE_TOKEN"), "shared encryption token (or PI_REMOTE_TOKEN)")
+	token := flags.String("token", os.Getenv("AGENT_REMOTE_TOKEN"), "shared encryption token (or AGENT_REMOTE_TOKEN)")
 	toolOptions := addToolFlags(flags)
 	if err := flags.Parse(arguments); err != nil {
 		return err
@@ -117,7 +117,7 @@ func runServer(arguments []string) error {
 func runWorker(arguments []string) error {
 	flags := flag.NewFlagSet("worker", flag.ContinueOnError)
 	serverURL := flags.String("server", "", "gateway URL, for example ws://gateway.example")
-	token := flags.String("token", os.Getenv("PI_REMOTE_TOKEN"), "shared encryption token (or PI_REMOTE_TOKEN)")
+	token := flags.String("token", os.Getenv("AGENT_REMOTE_TOKEN"), "shared encryption token (or AGENT_REMOTE_TOKEN)")
 	workerID := flags.String("id", "", "stable worker id (defaults to hostname)")
 	toolOptions := addToolFlags(flags)
 	if err := flags.Parse(arguments); err != nil {
@@ -197,8 +197,8 @@ func printClientEnvironment(output io.Writer, listenAddress, token string) {
 	fmt.Fprintln(output, "# ________________________ Gateway ________________________")
 	fmt.Fprintln(output)
 	fmt.Fprintln(output, "# Local CLI")
-	fmt.Fprintf(output, "export PI_REMOTE_URL=%s\n", shellQuote(clientURL))
-	fmt.Fprintf(output, "export PI_REMOTE_TOKEN=%s\n", shellQuote(token))
+	fmt.Fprintf(output, "export AGENT_REMOTE_URL=%s\n", shellQuote(clientURL))
+	fmt.Fprintf(output, "export AGENT_REMOTE_TOKEN=%s\n", shellQuote(token))
 	fmt.Fprintln(output)
 	fmt.Fprintln(output, "# Pi")
 	fmt.Fprintf(output, "/remote connect %s %s\n", clientURL, token)
@@ -264,12 +264,12 @@ func shellQuote(value string) string {
 }
 
 func printUsage() {
-	fmt.Println(`pi-remote - reverse-connected RPC execution for Pi agents
+	fmt.Println(`agent-remote - reverse-connected RPC execution for Pi agents
 
 Usage:
-  pi-remote serve [flags]
-  pi-remote worker [flags]
-  pi-remote version
+  agent-remote serve [flags]
+  agent-remote worker [flags]
+  agent-remote version
 
-Run "pi-remote serve -h" or "pi-remote worker -h" for flags.`)
+Run "agent-remote serve -h" or "agent-remote worker -h" for flags.`)
 }

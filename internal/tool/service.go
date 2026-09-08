@@ -9,7 +9,7 @@ import (
 	"io"
 	"sync"
 
-	"pi-remote/internal/runtimebundle"
+	"agent-remote/internal/runtimebundle"
 )
 
 type ChunkWriter func([]byte)

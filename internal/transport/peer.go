@@ -10,7 +10,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"pi-remote/internal/protocol"
+	"agent-remote/internal/protocol"
 )
 
 type ChunkHandler func([]byte)

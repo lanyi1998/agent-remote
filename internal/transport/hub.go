@@ -4,7 +4,7 @@ import (
 	"sort"
 	"sync"
 
-	"pi-remote/internal/protocol"
+	"agent-remote/internal/protocol"
 )
 
 type Hub struct {

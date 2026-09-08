@@ -9,8 +9,8 @@ import (
 	"io"
 	"strings"
 
-	"pi-remote/internal/buildinfo"
-	remoteclient "pi-remote/internal/client"
+	"agent-remote/internal/buildinfo"
+	remoteclient "agent-remote/internal/client"
 )
 
 const mcpProtocolVersion = "2025-11-25"
@@ -68,7 +68,7 @@ type mcpServer struct {
 
 func runMCP(ctx context.Context, options globalOptions, arguments []string, ioStreams streams) error {
 	if len(arguments) != 0 {
-		return errors.New("usage: pi-remote-cli [global flags] mcp")
+		return errors.New("usage: aremote [global flags] mcp")
 	}
 	server := mcpServer{url: options.url, token: options.token, defaultTarget: options.target}
 	return server.serve(ctx, ioStreams.in, ioStreams.out)
@@ -189,10 +189,10 @@ func (s *mcpServer) initialize(request mcpRequest) mcpResponse {
 		"protocolVersion": params.ProtocolVersion,
 		"capabilities":    map[string]interface{}{"tools": map[string]interface{}{}},
 		"serverInfo": map[string]string{
-			"name":    "pi-remote-cli",
+			"name":    "aremote",
 			"version": buildinfo.Version,
 		},
-		"instructions": "Use these tools only for work on the selected pi-remote Gateway or Worker.",
+		"instructions": "Use these tools only for work on the selected agent-remote Gateway or Worker.",
 	})
 }
 

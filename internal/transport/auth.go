@@ -15,9 +15,9 @@ import (
 )
 
 const (
-	AuthNonceHeader     = "X-Pi-Remote-Nonce"
-	AuthTimestampHeader = "X-Pi-Remote-Timestamp"
-	AuthProofHeader     = "X-Pi-Remote-Proof"
+	AuthNonceHeader     = "X-Agent-Remote-Nonce"
+	AuthTimestampHeader = "X-Agent-Remote-Timestamp"
+	AuthProofHeader     = "X-Agent-Remote-Proof"
 
 	authNonceBytes = 16
 	authWindow     = 5 * time.Minute
@@ -139,7 +139,7 @@ func absDuration(value time.Duration) time.Duration {
 
 func deriveKey(token, purpose string) []byte {
 	hash := sha256.New()
-	hash.Write([]byte("pi-remote/secure/v1/"))
+	hash.Write([]byte("agent-remote/secure/v1/"))
 	hash.Write([]byte(purpose))
 	hash.Write([]byte{0})
 	hash.Write([]byte(token))
