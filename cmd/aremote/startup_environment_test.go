@@ -21,9 +21,8 @@ func TestPrintClientEnvironmentUsesShellQuoting(t *testing.T) {
 	printClientEnvironment(&output, "gateway.example:8787", "token with 'quote'")
 	want := "# ________________________ Gateway ________________________\n" +
 		"\n" +
-		"# Local CLI\n" +
-		"export AGENT_REMOTE_URL='http://gateway.example:8787'\n" +
-		"export AGENT_REMOTE_TOKEN='token with '\"'\"'quote'\"'\"''\n" +
+		"# Local aremote CLI\n" +
+		"aremote connect http://gateway.example:8787 'token with '\"'\"'quote'\"'\"''\n" +
 		"\n" +
 		"# Pi\n" +
 		"/remote connect http://gateway.example:8787 token with 'quote'\n"

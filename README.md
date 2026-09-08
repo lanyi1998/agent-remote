@@ -9,10 +9,10 @@ The source targets compatibility with Windows 7/2008.
 
 ## Features
 
-`agent-remote` supports two connection modes:
+The single `aremote` executable supports two connection modes:
 
-- Forward connection: run `serve` on the target machine and let Pi connect to it.
-- Reverse connection: run `serve` locally, and let the target machine connect out as
+- Forward connection: run `server` on the target machine and let Pi connect to it.
+- Reverse connection: run `server` locally, and let the target machine connect out as
   a `worker`. This is suitable when the target machine is behind a firewall and
   cannot accept inbound connections.
 
@@ -42,7 +42,7 @@ first successful connection.
 Start the Gateway on the target machine:
 
 ```sh
-./agent-remote-linux-amd64 serve --token 'replace-with-a-long-random-token'
+./aremote-linux-amd64 server --token 'replace-with-a-long-random-token'
 ```
 
 ![image-20260907164221111](https://blog-image.xemails.top/2026/4e76c4a2a5e5f3d5d7bd2492cd2e3c3b.webp)
@@ -83,14 +83,14 @@ Allow TCP port `8787` in the VPS cloud security group and system firewall.
 Start the Gateway on the public VPS:
 
 ```sh
-./agent-remote-linux-amd64 serve \
+./aremote-linux-amd64 server \
   --token 'replace-with-a-long-random-token' \
 ```
 
 Start the Worker on the private-network target machine:
 
 ```sh
-./agent-remote-linux-amd64 worker \
+./aremote-linux-amd64 worker \
   --token 'replace-with-a-long-random-token' \
   --server ws://VPS_PUBLIC_IP:8787 \
   --id office-linux
@@ -151,18 +151,24 @@ the same secure protocol.
 `aremote` can be used by any agent that supports command-line tools or standard
 stdio MCP.
 
-All integration methods use the following variables:
+Connect once before using the CLI or MCP. The connection is checked, then stored with
+its Token at `~/.agent-remote/config.json` with owner-only permissions:
 
 ```sh
-export AGENT_REMOTE_URL=http://HOST:8787
-export AGENT_REMOTE_TOKEN=replace-with-a-long-random-token
-export AGENT_REMOTE_TARGET=remote # optional; remote is the machine running the Gateway
+aremote connect http://HOST:8787 replace-with-a-long-random-token
+aremote connect http://HOST:8787 replace-with-a-long-random-token --worker office-linux My office machine
 ```
+
+Use `aremote status` to inspect the active target. `aremote list` shows every saved
+connection and its online status; in an interactive terminal, select its number to
+make it active. Use `aremote refresh` to query the active target again and
+`aremote remove` to interactively remove a saved connection; use
+`aremote remove CONNECTION_ID` in scripts.
 
 ### CLI
 
 Use this when an Agent calls `aremote` through a shell. First install the
-repository's `/skills/aremote/` into a Skill directory scanned by the Agent.
+repository's `/skills/aremote-cli/` into a Skill directory scanned by the Agent.
 
 Then explicitly invoke the Skill in the Agent conversation to check the connection:
 
@@ -181,7 +187,6 @@ Add the MCP settings in Codex:
 command = "/opt/homebrew/bin/aremote"
 args = ["mcp"]
 enabled = true
-env_vars = ["AGENT_REMOTE_URL", "AGENT_REMOTE_TOKEN", "AGENT_REMOTE_TARGET"]
 ```
 
 ![image-20260907175607595](https://blog-image.xemails.top/2026/11ce0c39dd2a16cc4bb735ae3f044bf4.webp)
@@ -197,7 +202,7 @@ internal/runtimebundle/assets/
 ```
 
 Windows builds currently support amd64 only. Every file below `windows_amd64`, except
-`_placeholder`, is embedded in `agent-remote.exe`.
+`_placeholder`, is embedded in `aremote.exe`.
 
 When the embedded BusyBox runtime is available, the Worker starts
 `busybox.exe sh -s` directly. Commands such as `ls`, `id`, `whoami`, `grep`, and

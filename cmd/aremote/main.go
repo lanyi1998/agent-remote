@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/signal"
 	"strings"
@@ -46,6 +47,7 @@ type bashResult struct {
 func (e *exitError) Error() string { return fmt.Sprintf("remote command exited with code %d", e.code) }
 
 func main() {
+	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	ioStreams := streams{in: os.Stdin, out: os.Stdout, err: os.Stderr}
 	code := exitCode(run(os.Args[1:], ioStreams), ioStreams.err)
 	if code != 0 {
@@ -69,6 +71,12 @@ func run(arguments []string, ioStreams streams) error {
 		_, err := fmt.Fprintln(ioStreams.out, buildinfo.Version)
 		return err
 	}
+	switch command {
+	case "server":
+		return ignoreHelpError(runServer(commandArguments))
+	case "worker":
+		return ignoreHelpError(runWorker(commandArguments))
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if options.requestTimeout > 0 {
@@ -77,8 +85,30 @@ func run(arguments []string, ioStreams streams) error {
 		defer cancel()
 	}
 	if command == "mcp" {
+		connection, err := activeConnection()
+		if err != nil {
+			return err
+		}
+		options = optionsForConnection(options, connection)
 		return runMCP(ctx, options, commandArguments, ioStreams)
 	}
+	switch command {
+	case "connect":
+		return runConnect(ctx, commandArguments, ioStreams.out)
+	case "status":
+		return runStatus(ctx, ioStreams.out)
+	case "list":
+		return runList(ctx, ioStreams)
+	case "remove":
+		return runRemove(commandArguments, ioStreams)
+	case "refresh":
+		return runRefresh(ctx, ioStreams.out)
+	}
+	connection, err := activeConnection()
+	if err != nil {
+		return err
+	}
+	options = optionsForConnection(options, connection)
 	client, err := remoteclient.New(remoteclient.Config{BaseURL: options.url, Token: options.token})
 	if err != nil {
 		return err
@@ -90,13 +120,17 @@ func run(arguments []string, ioStreams streams) error {
 	return err
 }
 
+func ignoreHelpError(err error) error {
+	if errors.Is(err, flag.ErrHelp) {
+		return nil
+	}
+	return err
+}
+
 func parseGlobalOptions(arguments []string, errorOutput io.Writer) (globalOptions, string, []string, error) {
 	flags := flag.NewFlagSet("aremote", flag.ContinueOnError)
 	flags.SetOutput(errorOutput)
 	options := globalOptions{}
-	flags.StringVar(&options.url, "url", os.Getenv("AGENT_REMOTE_URL"), "Gateway URL (or AGENT_REMOTE_URL)")
-	flags.StringVar(&options.token, "token", os.Getenv("AGENT_REMOTE_TOKEN"), "shared token (or AGENT_REMOTE_TOKEN)")
-	flags.StringVar(&options.target, "target", envOrDefault("AGENT_REMOTE_TARGET", "remote"), "target Worker ID (or AGENT_REMOTE_TARGET)")
 	flags.BoolVar(&options.raw, "raw", false, "print read/bash content instead of JSON")
 	flags.DurationVar(&options.requestTimeout, "request-timeout", 0, "whole-request timeout, for example 2m (default: none)")
 	flags.Usage = func() { printUsage(errorOutput) }
@@ -115,8 +149,6 @@ func parseGlobalOptions(arguments []string, errorOutput io.Writer) (globalOption
 
 func runCommand(ctx context.Context, client *remoteclient.Client, options globalOptions, command string, arguments []string, ioStreams streams) error {
 	switch command {
-	case "targets":
-		return runTargets(ctx, client, arguments, ioStreams.out)
 	case "read":
 		return runRead(ctx, client, options, arguments, ioStreams)
 	case "find":
@@ -132,17 +164,6 @@ func runCommand(ctx context.Context, client *remoteclient.Client, options global
 	default:
 		return fmt.Errorf("unknown command %q", command)
 	}
-}
-
-func runTargets(ctx context.Context, client *remoteclient.Client, arguments []string, output io.Writer) error {
-	if len(arguments) != 0 {
-		return errors.New("targets does not accept arguments")
-	}
-	result, err := client.Targets(ctx)
-	if err != nil {
-		return err
-	}
-	return writeJSON(output, result)
 }
 
 func runRead(ctx context.Context, client *remoteclient.Client, options globalOptions, arguments []string, ioStreams streams) error {
@@ -484,18 +505,23 @@ func normalizeExitCode(code int) int {
 	return code
 }
 
-func envOrDefault(name, fallback string) string {
-	if value := os.Getenv(name); value != "" {
-		return value
-	}
-	return fallback
-}
-
 func printUsage(output io.Writer) {
-	fmt.Fprintln(output, `aremote - control an agent-remote Gateway from scripts and other agents
+	fmt.Fprintln(output, `aremote - agent-remote Gateway, Worker, CLI, and MCP server
 
 Usage:
-  aremote [global flags] targets
+
+Server commands:
+  aremote server [flags]
+  aremote worker [flags]
+
+Connection commands:
+  aremote connect URL TOKEN [--worker ID] [NOTE...]
+  aremote status
+  aremote list
+  aremote remove [CONNECTION_ID]
+  aremote refresh
+
+Remote tool commands:
   aremote [global flags] read [--offset N] [--limit N] PATH
   aremote [global flags] find [--max-results N] [QUERY]
   aremote [global flags] bash [--timeout SEC] [--tty] [--encoding NAME] [COMMAND...]
@@ -503,15 +529,20 @@ Usage:
   aremote [global flags] write [--content TEXT|--content-file FILE] PATH
   aremote [global flags] edit [--edits JSON|--edits-file FILE] PATH
   aremote [global flags] rpc [--input JSON|--input-file FILE] TOOL
+
+MCP command:
   aremote [global flags] mcp
 
-Global flags (must precede the command):
-  --url URL              Gateway URL; defaults to AGENT_REMOTE_URL
-  --token TOKEN          shared token; defaults to AGENT_REMOTE_TOKEN
-  --target ID            remote or Worker ID; defaults to AGENT_REMOTE_TARGET or remote
+General commands:
+  aremote version
+  aremote help
+
+Remote tool flags (must precede the command):
   --raw                  print raw content for read and bash
   --request-timeout D    whole-request timeout such as 30s or 2m
 
+Connect once to save and select a target. List is interactive when stdin is a terminal.
+Use flags after server and worker; those commands do not use the global flags.
 When inline/file input is omitted, bash, write, edit, and rpc read stdin.
 All normal output is JSON unless --raw is used with read or bash.
 Interactive bash writes terminal output directly to stdout.`)

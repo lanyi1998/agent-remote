@@ -11,15 +11,13 @@ over invoking `aremote` through a shell when both are available.
 
 ## Connection and targets
 
-The MCP server receives `AGENT_REMOTE_URL` and `AGENT_REMOTE_TOKEN` from its process
-environment. Never place the Token in generated configuration, tool input, or
+Before starting MCP, use `aremote connect URL TOKEN [--worker ID] [NOTE...]` to save
+and select the target in `~/.agent-remote/config.json`. The MCP server uses that
+active connection; never place the Token in generated configuration, tool input, or
 user-visible output.
 
-An omitted `target` uses `AGENT_REMOTE_TARGET`, which defaults to `remote`: the machine
-running the Gateway. Supply a Worker ID only when the requested machine is a
-reverse-connected Worker. If the target is unspecified or its properties matter to
-the task, use `remote_targets` first and verify its hostname, workspace root, OS,
-shell profile, and online state.
+If target properties matter to the task, use `remote_targets` first and verify its
+hostname, workspace root, OS, shell profile, and online state.
 
 ## Tool routing
 

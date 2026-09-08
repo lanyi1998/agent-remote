@@ -18,7 +18,6 @@ import (
 	"syscall"
 	"time"
 
-	"agent-remote/internal/buildinfo"
 	"agent-remote/internal/gateway"
 	"agent-remote/internal/protocol"
 	"agent-remote/internal/tool"
@@ -33,39 +32,10 @@ type toolFlags struct {
 	busyBoxPath      string
 }
 
-func main() {
-	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
-	if err := run(os.Args[1:]); err != nil {
-		log.Fatal(err)
-	}
-}
-
-func run(arguments []string) error {
-	if len(arguments) == 0 {
-		printUsage()
-		return errors.New("a subcommand is required")
-	}
-	switch arguments[0] {
-	case "serve":
-		return runServer(arguments[1:])
-	case "worker":
-		return runWorker(arguments[1:])
-	case "version":
-		fmt.Println(buildinfo.Version)
-		return nil
-	case "help", "-h", "--help":
-		printUsage()
-		return nil
-	default:
-		printUsage()
-		return fmt.Errorf("unknown subcommand %q", arguments[0])
-	}
-}
-
 func runServer(arguments []string) error {
-	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
+	flags := flag.NewFlagSet("server", flag.ContinueOnError)
 	listen := flags.String("listen", "0.0.0.0:8787", "HTTP listen address")
-	token := flags.String("token", os.Getenv("AGENT_REMOTE_TOKEN"), "shared encryption token (or AGENT_REMOTE_TOKEN)")
+	token := flags.String("token", "", "shared encryption token")
 	toolOptions := addToolFlags(flags)
 	if err := flags.Parse(arguments); err != nil {
 		return err
@@ -117,7 +87,7 @@ func runServer(arguments []string) error {
 func runWorker(arguments []string) error {
 	flags := flag.NewFlagSet("worker", flag.ContinueOnError)
 	serverURL := flags.String("server", "", "gateway URL, for example ws://gateway.example")
-	token := flags.String("token", os.Getenv("AGENT_REMOTE_TOKEN"), "shared encryption token (or AGENT_REMOTE_TOKEN)")
+	token := flags.String("token", "", "shared encryption token")
 	workerID := flags.String("id", "", "stable worker id (defaults to hostname)")
 	toolOptions := addToolFlags(flags)
 	if err := flags.Parse(arguments); err != nil {
@@ -196,9 +166,8 @@ func printClientEnvironment(output io.Writer, listenAddress, token string) {
 	}
 	fmt.Fprintln(output, "# ________________________ Gateway ________________________")
 	fmt.Fprintln(output)
-	fmt.Fprintln(output, "# Local CLI")
-	fmt.Fprintf(output, "export AGENT_REMOTE_URL=%s\n", shellQuote(clientURL))
-	fmt.Fprintf(output, "export AGENT_REMOTE_TOKEN=%s\n", shellQuote(token))
+	fmt.Fprintln(output, "# Local aremote CLI")
+	fmt.Fprintf(output, "aremote connect %s %s\n", clientURL, shellQuote(token))
 	fmt.Fprintln(output)
 	fmt.Fprintln(output, "# Pi")
 	fmt.Fprintf(output, "/remote connect %s %s\n", clientURL, token)
@@ -261,15 +230,4 @@ func isWildcardHost(host string) bool {
 
 func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
-}
-
-func printUsage() {
-	fmt.Println(`agent-remote - reverse-connected RPC execution for Pi agents
-
-Usage:
-  agent-remote serve [flags]
-  agent-remote worker [flags]
-  agent-remote version
-
-Run "agent-remote serve -h" or "agent-remote worker -h" for flags.`)
 }

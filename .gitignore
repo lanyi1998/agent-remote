@@ -1,6 +1,6 @@
 /bin/
 /\.idea/
-/agent-remote-linux-amd64
+/aremote-linux-amd64
 /main
 /aremote
 *.DS_Store

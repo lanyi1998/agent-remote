@@ -11,15 +11,15 @@ shell or filesystem commands for a remote request.
 
 ## Connection and targets
 
-The CLI reads `AGENT_REMOTE_URL` and `AGENT_REMOTE_TOKEN`, or accepts `--url` and
-`--token` before the subcommand. Keep the Token out of command output, logs, and
-generated files.
+Run `aremote connect URL TOKEN [--worker ID] [NOTE...]` before operating on a
+remote machine. It verifies the target and saves the Token and target selection in
+`~/.agent-remote/config.json`; never expose the Token in output, logs, or generated
+files.
 
-`AGENT_REMOTE_TARGET` or `--target` selects the execution target. It defaults to
-`remote`, which is the machine running the Gateway. A Worker ID selects a
-reverse-connected Worker. If the requested target is not known, run
-`aremote targets` and verify its hostname, workspace root, OS, shell profile,
-and online state before assuming details.
+Run `aremote status` to verify the active target. `aremote list` shows saved
+connections and online states; in an interactive terminal, enter a listed number to
+activate it. To select a Worker that has not been saved, run `aremote connect URL
+TOKEN --worker ID [NOTE...]`.
 
 ## Choose commands deliberately
 
@@ -29,15 +29,14 @@ and online state before assuming details.
   terminal is required.
 - Use `rpc TOOL` only if no dedicated command supports the operation.
 
-Global flags must precede the command. Normal output is JSON. Add `--raw` only when
-exact file or command output is needed. `bash`, `write`, `edit`, and `rpc` accept
-stdin when their inline or file input option is omitted; prefer stdin for multiline
-or quote-sensitive values.
+Normal output is JSON. Add `--raw` only when exact file or command output is needed.
+`bash`, `write`, `edit`, and `rpc` accept stdin when their inline or file input
+option is omitted; prefer stdin for multiline or quote-sensitive values.
 
 ```sh
-printf '%s\n' 'go test ./...' | aremote --target build-host bash --timeout 300
-printf '%s' "$FILE_CONTENT" | aremote --target build-host write src/example.txt
-printf '%s' '[{"oldText":"before","newText":"after"}]' | aremote --target build-host edit src/example.txt
+printf '%s\n' 'go test ./...' | aremote bash --timeout 300
+printf '%s' "$FILE_CONTENT" | aremote write src/example.txt
+printf '%s' '[{"oldText":"before","newText":"after"}]' | aremote edit src/example.txt
 ```
 
 Remote shell exit codes from 1 through 255 are preserved. Transport and RPC failures

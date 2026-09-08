@@ -25,7 +25,7 @@ pi install /absolute/path/to/agent-remote/pi-extension/index.ts
 The target machine listens for the Gateway API:
 
 ```powershell
-agent-remote.exe serve --listen 0.0.0.0:8787 --root C:/work
+aremote.exe server --listen 0.0.0.0:8787 --root C:/work
 ```
 
 Pi connects directly to that machine; the target defaults to the Gateway machine:
@@ -48,13 +48,13 @@ allowlists are still recommended when exposing the forward listener.
 Run the Gateway beside Pi:
 
 ```sh
-agent-remote serve --listen 127.0.0.1:8787 --root /local/work
+aremote server --listen 127.0.0.1:8787 --root /local/work
 ```
 
 The remote machine connects outward:
 
 ```powershell
-agent-remote.exe worker `
+aremote.exe worker `
   --server ws://gateway.example `
   --id win7-build-01 `
   --root C:/work

@@ -7,20 +7,16 @@ import (
 	"testing"
 )
 
-func TestParseGlobalOptionsUsesEnvironmentAndFlags(t *testing.T) {
-	t.Setenv("AGENT_REMOTE_URL", "http://env.example")
-	t.Setenv("AGENT_REMOTE_TOKEN", "environment-token")
-	t.Setenv("AGENT_REMOTE_TARGET", "environment-worker")
+func TestParseGlobalOptionsParsesClientFlags(t *testing.T) {
 	options, command, arguments, err := parseGlobalOptions([]string{
-		"--url", "http://flag.example",
-		"--token", "flag-token",
-		"--target", "flag-worker",
+		"--raw",
+		"--request-timeout", "2m",
 		"read", "hello.txt",
 	}, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if options.url != "http://flag.example" || options.token != "flag-token" || options.target != "flag-worker" {
+	if !options.raw || options.requestTimeout.String() != "2m0s" {
 		t.Fatalf("unexpected options: %+v", options)
 	}
 	if command != "read" || len(arguments) != 1 || arguments[0] != "hello.txt" {
@@ -28,15 +24,15 @@ func TestParseGlobalOptionsUsesEnvironmentAndFlags(t *testing.T) {
 	}
 }
 
-func TestParseGlobalOptionsDefaultsToEnvironment(t *testing.T) {
+func TestParseGlobalOptionsIgnoresConnectionEnvironment(t *testing.T) {
 	t.Setenv("AGENT_REMOTE_URL", "http://env.example")
 	t.Setenv("AGENT_REMOTE_TOKEN", "environment-token")
 	t.Setenv("AGENT_REMOTE_TARGET", "environment-worker")
-	options, command, _, err := parseGlobalOptions([]string{"targets"}, &bytes.Buffer{})
+	options, command, _, err := parseGlobalOptions([]string{"status"}, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if options.url != "http://env.example" || options.token != "environment-token" || options.target != "environment-worker" || command != "targets" {
+	if options.url != "" || options.token != "" || options.target != "" || command != "status" {
 		t.Fatalf("unexpected parse result: %+v, %q", options, command)
 	}
 }
@@ -68,5 +64,18 @@ func TestExitCodeWritesJSONError(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), `"ok": false`) || !strings.Contains(output.String(), `"error": "boom"`) {
 		t.Fatalf("error output = %s", output.String())
+	}
+}
+
+func TestRunDispatchesServerSubcommand(t *testing.T) {
+	err := run([]string{"server"}, streams{in: strings.NewReader(""), out: &bytes.Buffer{}, err: &bytes.Buffer{}})
+	if err == nil || !strings.Contains(err.Error(), "shared token") {
+		t.Fatalf("server error = %v", err)
+	}
+}
+
+func TestRunServerHelpSucceeds(t *testing.T) {
+	if err := run([]string{"server", "--help"}, streams{in: strings.NewReader(""), out: &bytes.Buffer{}, err: &bytes.Buffer{}}); err != nil {
+		t.Fatalf("server help error = %v", err)
 	}
 }

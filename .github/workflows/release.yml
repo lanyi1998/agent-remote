@@ -38,15 +38,7 @@ jobs:
 
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
             go build -trimpath -ldflags="-s -w" \
-            -o dist/agent-remote-linux-amd64 ./cmd/agent-remote
-
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-            go build -trimpath -ldflags="-s -w" \
             -o dist/aremote-linux-amd64 ./cmd/aremote
-
-          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 \
-            go build -trimpath -ldflags="-s -w" \
-            -o dist/agent-remote-darwin-amd64 ./cmd/agent-remote
 
           CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 \
             go build -trimpath -ldflags="-s -w" \
@@ -54,21 +46,13 @@ jobs:
 
           CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 \
             go build -trimpath -ldflags="-s -w" \
-            -o dist/agent-remote-darwin-arm64 ./cmd/agent-remote
-
-          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 \
-            go build -trimpath -ldflags="-s -w" \
             -o dist/aremote-darwin-arm64 ./cmd/aremote
-
-          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
-            go build -trimpath -ldflags="-s -w" \
-            -o dist/agent-remote-windows-amd64.exe ./cmd/agent-remote
 
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
             go build -trimpath -ldflags="-s -w" \
             -o dist/aremote-windows-amd64.exe ./cmd/aremote
 
-          sha256sum dist/agent-remote-* dist/aremote-* > dist/SHA256SUMS
+          sha256sum dist/aremote-* > dist/SHA256SUMS
 
       - name: Publish GitHub Release
         env:

@@ -6,10 +6,10 @@ agent-remote是一个在 本地 pi/codex/claude等agent具备操作远程homelab
 
 ## 功能
 
-`agent-remote` 支持两种连接方式：
+单一 `aremote` 可执行程序支持两种连接方式：
 
-- 正向连接：在目标机器上运行 `serve`，Pi 直接连接目标机器。
-- 反向连接：在 本机运行 `serve`，目标机器以 `worker` 身份主动连接，适用于目标机器有防火墙，连接无法入站的情况。
+- 正向连接：在目标机器上运行 `server`，Pi 直接连接目标机器。
+- 反向连接：在 本机运行 `server`，目标机器以 `worker` 身份主动连接，适用于目标机器有防火墙，连接无法入站的情况。
 
 Pi 扩展会接管 `read`、`bash`、`edit`、`write`、文件补全和交互式 `!` Bash 命令。
 
@@ -35,7 +35,7 @@ Gateway 和 Worker 必须使用相同的 Token，Token 长度至少为 8 个字�
 在目标机器上启动 Gateway：
 
 ```sh
-./agent-remote-linux-amd64 serve --token 'replace-with-a-long-random-token'
+./aremote-linux-amd64 server --token 'replace-with-a-long-random-token'
 ```
 
 ![image-20260907164221111](https://blog-image.xemails.top/2026/4e76c4a2a5e5f3d5d7bd2492cd2e3c3b.webp)
@@ -72,14 +72,14 @@ Pi  --HTTP-->  公网 VPS Gateway  <--WebSocket--  Worker
 在公网 VPS 上启动 Gateway：
 
 ```sh
-./agent-remote-linux-amd64 serve \
+./aremote-linux-amd64 server \
   --token 'replace-with-a-long-random-token' \
 ```
 
 在内网目标机器上启动 Worker：
 
 ```sh
-./agent-remote-linux-amd64 worker \
+./aremote-linux-amd64 worker \
   --token 'replace-with-a-long-random-token' \
   --server ws://VPS_PUBLIC_IP:8787 \
   --id office-linux
@@ -135,17 +135,18 @@ curl http://HOST:8787/healthz
 
 `aremote` 可供任意支持命令行或标准 stdio MCP 的 Agent 使用。
 
-所有方式共用下列变量：
+使用 CLI 或 MCP 前，先执行一次连接。连接会先校验目标，再将 Token 及连接信息以仅当前用户可读的权限保存到 `~/.agent-remote/config.json`：
 
 ```sh
-export AGENT_REMOTE_URL=http://HOST:8787
-export AGENT_REMOTE_TOKEN=replace-with-a-long-random-token
-export AGENT_REMOTE_TARGET=remote # 可选；remote 表示运行 Gateway 的机器
+aremote connect http://HOST:8787 replace-with-a-long-random-token
+aremote connect http://HOST:8787 replace-with-a-long-random-token --worker office-linux 我的办公机器
 ```
+
+`aremote status` 显示当前目标。`aremote list` 显示全部已保存连接及在线状态；在交互式终端中输入编号即可切换活动连接。使用 `aremote refresh` 重新查询当前目标，使用 `aremote remove` 交互式删除已保存连接；在脚本中使用 `aremote remove CONNECTION_ID`。
 
 ### CLI
 
-适用于 Agent 通过 Shell 调用 `aremote` 的场景。先将仓库中的`/skills/aremote/`安装到 Agent 会扫描的 Skill 目录。
+适用于 Agent 通过 Shell 调用 `aremote` 的场景。先将仓库中的`/skills/aremote-cli/`安装到 Agent 会扫描的 Skill 目录。
 
 然后在 Agent 对话中显式调用 Skill，进行连接检查：
 
@@ -164,7 +165,6 @@ codex 加入mcp设置
 command = "/opt/homebrew/bin/aremote"
 args = ["mcp"]
 enabled = true
-env_vars = ["AGENT_REMOTE_URL", "AGENT_REMOTE_TOKEN", "AGENT_REMOTE_TARGET"]
 ```
 
 ![image-20260907175607595](https://blog-image.xemails.top/2026/11ce0c39dd2a16cc4bb735ae3f044bf4.webp)
@@ -179,7 +179,7 @@ internal/runtimebundle/assets/
     └── bin/busybox.exe
 ```
 
-Windows 构建目前只支持 amd64。`windows_amd64` 下除了 `_placeholder` 以外的文件都会嵌入 `agent-remote.exe`。
+Windows 构建目前只支持 amd64。`windows_amd64` 下除了 `_placeholder` 以外的文件都会嵌入 `aremote.exe`。
 
 嵌入的 BusyBox 运行时可用时，Worker 会直接启动 `busybox.exe sh -s`。`ls`、`id`、`whoami`、`grep` 和 `find` 等命令由 BusyBox 处理，不会生成 applet 链接文件。使用的是 BusyBox 的 `ash` 语法，而不是 Bash 语法，也不会静默切换到 CMD 或 PowerShell。
 
