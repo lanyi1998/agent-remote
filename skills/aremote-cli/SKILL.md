@@ -17,9 +17,14 @@ remote machine. It verifies the target and saves the Token and target selection 
 files.
 
 Run `aremote status` to verify the active target. `aremote list` shows saved
-connections and online states; in an interactive terminal, enter a listed number to
+targets and online states; in an interactive terminal, enter a listed number to
 activate it. To select a Worker that has not been saved, run `aremote connect URL
 TOKEN --worker ID [NOTE...]`.
+
+For a one-off operation on another saved machine, pass its ID from `aremote list`
+without changing the active target: `aremote --target TARGET_ID bash
+COMMAND`. This is the preferred approach when multiple agents work on different
+machines concurrently.
 
 ## Choose commands deliberately
 

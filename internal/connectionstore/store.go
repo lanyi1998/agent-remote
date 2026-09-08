@@ -17,7 +17,7 @@ const storeVersion = 1
 type Connection struct {
 	ID     string `json:"id"`
 	URL    string `json:"url"`
-	Target string `json:"target"`
+	Target string `json:"worker"`
 	Note   string `json:"note"`
 	Token  string `json:"token"`
 }
@@ -25,7 +25,7 @@ type Connection struct {
 type Store struct {
 	Version     int          `json:"version"`
 	Active      string       `json:"active,omitempty"`
-	Connections []Connection `json:"connections"`
+	Connections []Connection `json:"targets"`
 }
 
 type Repository struct {
@@ -52,14 +52,45 @@ func (r Repository) Load() (Store, error) {
 	if err != nil {
 		return Store{}, fmt.Errorf("read connection configuration: %w", err)
 	}
-	var store Store
-	if err := json.Unmarshal(contents, &store); err != nil {
+	store, err := decodeStore(contents)
+	if err != nil {
 		return Store{}, fmt.Errorf("decode connection configuration: %w", err)
 	}
 	if err := validate(store); err != nil {
 		return Store{}, fmt.Errorf("validate connection configuration: %w", err)
 	}
 	return store, nil
+}
+
+func decodeStore(contents []byte) (Store, error) {
+	var persisted struct {
+		Version     int                `json:"version"`
+		Active      string             `json:"active"`
+		Targets     []Connection       `json:"targets"`
+		Connections []legacyConnection `json:"connections"`
+	}
+	if err := json.Unmarshal(contents, &persisted); err != nil {
+		return Store{}, err
+	}
+	if persisted.Targets != nil {
+		return Store{Version: persisted.Version, Active: persisted.Active, Connections: persisted.Targets}, nil
+	}
+	connections := make([]Connection, 0, len(persisted.Connections))
+	for _, connection := range persisted.Connections {
+		connections = append(connections, Connection{
+			ID: connection.ID, URL: connection.URL, Target: connection.Target,
+			Note: connection.Note, Token: connection.Token,
+		})
+	}
+	return Store{Version: persisted.Version, Active: persisted.Active, Connections: connections}, nil
+}
+
+type legacyConnection struct {
+	ID     string `json:"id"`
+	URL    string `json:"url"`
+	Target string `json:"target"`
+	Note   string `json:"note"`
+	Token  string `json:"token"`
 }
 
 func (r Repository) Save(store Store) error {
@@ -101,8 +132,12 @@ func Empty() Store {
 }
 
 func (s Store) ActiveConnection() (Connection, bool) {
+	return s.Connection(s.Active)
+}
+
+func (s Store) Connection(id string) (Connection, bool) {
 	for _, connection := range s.Connections {
-		if connection.ID == s.Active {
+		if connection.ID == id {
 			return connection, true
 		}
 	}
@@ -238,5 +273,5 @@ func newID() (string, error) {
 	if _, err := rand.Read(value); err != nil {
 		return "", fmt.Errorf("generate connection id: %w", err)
 	}
-	return "connection-" + hex.EncodeToString(value), nil
+	return "target-" + hex.EncodeToString(value), nil
 }

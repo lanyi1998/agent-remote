@@ -142,7 +142,13 @@ aremote connect http://HOST:8787 replace-with-a-long-random-token
 aremote connect http://HOST:8787 replace-with-a-long-random-token --worker office-linux 我的办公机器
 ```
 
-`aremote status` 显示当前目标。`aremote list` 显示全部已保存连接及在线状态；在交互式终端中输入编号即可切换活动连接。使用 `aremote refresh` 重新查询当前目标，使用 `aremote remove` 交互式删除已保存连接；在脚本中使用 `aremote remove CONNECTION_ID`。
+`aremote status` 显示当前目标。`aremote list` 显示全部已保存目标及在线状态；在交互式终端中输入编号即可切换活动目标。使用 `aremote refresh` 重新查询当前目标，使用 `aremote remove` 交互式删除已保存目标；在脚本中使用 `aremote remove TARGET_ID`。
+
+每条已保存目标都有 `aremote list` 显示的 ID。使用非活动目标时无需改变默认目标，因此多个 Agent 可以并行操作不同机器：
+
+```sh
+aremote --target target-a1b2c3d4 bash "hostname"
+```
 
 ### CLI
 
@@ -166,6 +172,8 @@ command = "/opt/homebrew/bin/aremote"
 args = ["mcp"]
 enabled = true
 ```
+
+MCP 同样可以访问任意已保存目标。先调用 `remote_targets` 获取目标 ID，再在 `remote_read`、`remote_bash` 等工具中传入 `target`。调用 `remote_workers` 并传入 `target` 可查看其 Gateway 和 Workers；需要选择该目标下的非默认 Worker 时传入 `worker`。
 
 ![image-20260907175607595](https://blog-image.xemails.top/2026/11ce0c39dd2a16cc4bb735ae3f044bf4.webp)
 

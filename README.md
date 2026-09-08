@@ -128,8 +128,8 @@ Multiple Workers are supported, but every machine's `--id` must be unique:
 ```text
 /remote                              # show remote subcommands
 /remote status                       # show the current target
-/remote list                         # list saved connections and their online status
-/remote remove                       # remove a saved connection
+/remote list                         # list saved targets and their online status
+/remote remove                       # remove a saved target
 /remote refresh                      # refresh Worker information
 /remote off                          # disable the remote connection
 /remote office-linux                 # select a Worker
@@ -162,10 +162,18 @@ aremote connect http://HOST:8787 replace-with-a-long-random-token --worker offic
 ```
 
 Use `aremote status` to inspect the active target. `aremote list` shows every saved
-connection and its online status; in an interactive terminal, select its number to
-make it active. Use `aremote refresh` to query the active target again and
-`aremote remove` to interactively remove a saved connection; use
-`aremote remove CONNECTION_ID` in scripts.
+target and its online status; in an interactive terminal, select its number to make
+it active. Use `aremote refresh` to query the active target again and
+`aremote remove` to interactively remove a saved target; use
+`aremote remove TARGET_ID` in scripts.
+
+Every saved target has an ID displayed by `aremote list`. Use a non-active target
+without changing the default, which lets separate agents operate distinct
+machines concurrently:
+
+```sh
+aremote --target target-a1b2c3d4 bash "hostname"
+```
 
 ### CLI
 
@@ -190,6 +198,11 @@ command = "/opt/homebrew/bin/aremote"
 args = ["mcp"]
 enabled = true
 ```
+
+MCP tools can also operate on any saved target. Call `remote_targets` to obtain
+target IDs, then pass `target` to `remote_read`, `remote_bash`, and the other remote
+tools. Call `remote_workers` with `target` to inspect its Gateway and Workers; pass
+`worker` to select a non-default Worker under that target's Gateway.
 
 ![image-20260907175607595](https://blog-image.xemails.top/2026/11ce0c39dd2a16cc4bb735ae3f044bf4.webp)
 

@@ -13,11 +13,17 @@ over invoking `aremote` through a shell when both are available.
 
 Before starting MCP, use `aremote connect URL TOKEN [--worker ID] [NOTE...]` to save
 and select the target in `~/.agent-remote/config.json`. The MCP server uses that
-active connection; never place the Token in generated configuration, tool input, or
+active target; never place the Token in generated configuration, tool input, or
 user-visible output.
 
-If target properties matter to the task, use `remote_targets` first and verify its
-hostname, workspace root, OS, shell profile, and online state.
+Use `remote_targets` to list saved targets. If Gateway or Worker properties matter,
+use `remote_workers` with the chosen target and verify its hostname, workspace root,
+OS, shell profile, and online state.
+
+Each `remote_*` operation accepts an optional `target` ID, which selects that saved
+Gateway and its default Worker without changing the active target. Its optional
+`worker` parameter selects a Worker below the chosen target's Gateway. Prefer
+`target` for concurrent work on different machines.
 
 ## Tool routing
 

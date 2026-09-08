@@ -32,7 +32,7 @@ func TestParseGlobalOptionsIgnoresConnectionEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if options.url != "" || options.token != "" || options.target != "" || command != "status" {
+	if options.url != "" || options.token != "" || options.worker != "" || command != "status" {
 		t.Fatalf("unexpected parse result: %+v, %q", options, command)
 	}
 }

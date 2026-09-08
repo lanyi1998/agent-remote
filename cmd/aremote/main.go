@@ -24,7 +24,8 @@ import (
 type globalOptions struct {
 	url            string
 	token          string
-	target         string
+	worker         string
+	targetID       string
 	raw            bool
 	requestTimeout time.Duration
 }
@@ -85,12 +86,7 @@ func run(arguments []string, ioStreams streams) error {
 		defer cancel()
 	}
 	if command == "mcp" {
-		connection, err := activeConnection()
-		if err != nil {
-			return err
-		}
-		options = optionsForConnection(options, connection)
-		return runMCP(ctx, options, commandArguments, ioStreams)
+		return runMCP(ctx, commandArguments, ioStreams)
 	}
 	switch command {
 	case "connect":
@@ -104,7 +100,7 @@ func run(arguments []string, ioStreams streams) error {
 	case "refresh":
 		return runRefresh(ctx, ioStreams.out)
 	}
-	connection, err := activeConnection()
+	connection, err := selectedConnection(options.targetID)
 	if err != nil {
 		return err
 	}
@@ -131,6 +127,7 @@ func parseGlobalOptions(arguments []string, errorOutput io.Writer) (globalOption
 	flags := flag.NewFlagSet("aremote", flag.ContinueOnError)
 	flags.SetOutput(errorOutput)
 	options := globalOptions{}
+	flags.StringVar(&options.targetID, "target", "", "saved target ID (defaults to the active target)")
 	flags.BoolVar(&options.raw, "raw", false, "print read/bash content instead of JSON")
 	flags.DurationVar(&options.requestTimeout, "request-timeout", 0, "whole-request timeout, for example 2m (default: none)")
 	flags.Usage = func() { printUsage(errorOutput) }
@@ -152,15 +149,15 @@ func runCommand(ctx context.Context, client *remoteclient.Client, options global
 	case "read":
 		return runRead(ctx, client, options, arguments, ioStreams)
 	case "find":
-		return runFind(ctx, client, options.target, arguments, ioStreams.out, ioStreams.err)
+		return runFind(ctx, client, options.worker, arguments, ioStreams.out, ioStreams.err)
 	case "bash", "shell":
 		return runBash(ctx, client, options, arguments, ioStreams)
 	case "write":
-		return runWrite(ctx, client, options.target, arguments, ioStreams)
+		return runWrite(ctx, client, options.worker, arguments, ioStreams)
 	case "edit":
-		return runEdit(ctx, client, options.target, arguments, ioStreams)
+		return runEdit(ctx, client, options.worker, arguments, ioStreams)
 	case "rpc":
-		return runRPC(ctx, client, options.target, arguments, ioStreams)
+		return runRPC(ctx, client, options.worker, arguments, ioStreams)
 	default:
 		return fmt.Errorf("unknown command %q", command)
 	}
@@ -183,7 +180,7 @@ func runRead(ctx context.Context, client *remoteclient.Client, options globalOpt
 	if *limit != 0 {
 		input["limit"] = *limit
 	}
-	result, err := client.Call(ctx, options.target, "read", input)
+	result, err := client.Call(ctx, options.worker, "read", input)
 	if err != nil {
 		return err
 	}
@@ -237,7 +234,7 @@ func runBash(ctx context.Context, client *remoteclient.Client, options globalOpt
 		}
 		defer restore()
 		exitCode, err := client.OpenTerminal(ctx, remoteclient.TerminalOptions{
-			Target:   options.target,
+			Target:   options.worker,
 			Tool:     "bash",
 			Command:  command,
 			Timeout:  optionalTimeout(*timeout),
@@ -267,7 +264,7 @@ func runBash(ctx context.Context, client *remoteclient.Client, options globalOpt
 	if *encoding != "" {
 		input["encoding"] = *encoding
 	}
-	result, err := client.Call(ctx, options.target, "bash", input)
+	result, err := client.Call(ctx, options.worker, "bash", input)
 	if err != nil {
 		return err
 	}
@@ -514,11 +511,11 @@ Server commands:
   aremote server [flags]
   aremote worker [flags]
 
-Connection commands:
+Target commands:
   aremote connect URL TOKEN [--worker ID] [NOTE...]
   aremote status
   aremote list
-  aremote remove [CONNECTION_ID]
+  aremote remove [TARGET_ID]
   aremote refresh
 
 Remote tool commands:
@@ -531,13 +528,14 @@ Remote tool commands:
   aremote [global flags] rpc [--input JSON|--input-file FILE] TOOL
 
 MCP command:
-  aremote [global flags] mcp
+  aremote mcp
 
 General commands:
   aremote version
   aremote help
 
 Remote tool flags (must precede the command):
+  --target ID            saved target ID; defaults to the active target
   --raw                  print raw content for read and bash
   --request-timeout D    whole-request timeout such as 30s or 2m
 

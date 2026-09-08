@@ -30,11 +30,20 @@ func TestMCPServesInitializeAndToolsList(t *testing.T) {
 		t.Fatalf("tools/list result = %#v", responses[1]["result"])
 	}
 	tools, ok := result["tools"].([]interface{})
-	if !ok || len(tools) != 6 {
+	if !ok || len(tools) != 7 {
 		t.Fatalf("tools = %#v", result["tools"])
 	}
-	if !containsMCPTool(tools, "remote_bash") || containsMCPTool(tools, "bash") {
+	if !containsMCPTool(tools, "remote_targets") || !containsMCPTool(tools, "remote_workers") || !containsMCPTool(tools, "remote_bash") || containsMCPTool(tools, "bash") {
 		t.Fatalf("unexpected tool names: %#v", tools)
+	}
+	remoteBash := mcpToolByName(t, tools, "remote_bash")
+	schema, ok := remoteBash["inputSchema"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("remote_bash schema = %#v", remoteBash["inputSchema"])
+	}
+	properties, ok := schema["properties"].(map[string]interface{})
+	if !ok || properties["target"] == nil || properties["worker"] == nil || properties["connection"] != nil {
+		t.Fatalf("remote_bash properties = %#v", properties)
 	}
 }
 
@@ -52,18 +61,18 @@ func TestMCPStartsWithoutRemoteConnection(t *testing.T) {
 	if response.Error != nil {
 		t.Fatalf("initialize error = %#v", response.Error)
 	}
-	result, err := server.executeTool(context.Background(), "remote_targets", nil)
+	result, err := server.executeTool(context.Background(), "remote_workers", nil)
 	if err == nil || result != nil || !strings.Contains(err.Error(), "remote URL is required") {
 		t.Fatalf("result = %#v, err = %v", result, err)
 	}
 }
 
-func TestMCPToolInputRemovesTarget(t *testing.T) {
-	input, err := mcpToolInput("bash", map[string]interface{}{"command": "id", "target": "worker-1"})
+func TestMCPToolInputRemovesTargetRouting(t *testing.T) {
+	input, err := mcpToolInput("bash", map[string]interface{}{"command": "id", "target": "target-1", "worker": "worker-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if input["command"] != "id" || input["target"] != nil {
+	if input["command"] != "id" || input["target"] != nil || input["worker"] != nil {
 		t.Fatalf("input = %#v", input)
 	}
 }
@@ -124,4 +133,16 @@ func containsMCPTool(tools []interface{}, name string) bool {
 		}
 	}
 	return false
+}
+
+func mcpToolByName(t *testing.T, tools []interface{}, name string) map[string]interface{} {
+	t.Helper()
+	for _, tool := range tools {
+		value, ok := tool.(map[string]interface{})
+		if ok && value["name"] == name {
+			return value
+		}
+	}
+	t.Fatalf("tool %q not found", name)
+	return nil
 }

@@ -16,10 +16,10 @@ import (
 	"golang.org/x/term"
 )
 
-type connectionView struct {
+type targetView struct {
 	ID     string          `json:"id"`
 	URL    string          `json:"url"`
-	Target string          `json:"target"`
+	Worker string          `json:"worker"`
 	Note   string          `json:"note,omitempty"`
 	Active bool            `json:"active"`
 	Online bool            `json:"online"`
@@ -27,9 +27,13 @@ type connectionView struct {
 	Info   *protocol.Hello `json:"info,omitempty"`
 }
 
-var errNoActiveConnection = errors.New("no active connection; run 'aremote connect URL TOKEN' first")
+var errNoActiveTarget = errors.New("no active target; run 'aremote connect URL TOKEN' first")
 
 func activeConnection() (connectionstore.Connection, error) {
+	return selectedConnection("")
+}
+
+func selectedConnection(id string) (connectionstore.Connection, error) {
 	repository, err := connectionRepository()
 	if err != nil {
 		return connectionstore.Connection{}, err
@@ -38,9 +42,16 @@ func activeConnection() (connectionstore.Connection, error) {
 	if err != nil {
 		return connectionstore.Connection{}, err
 	}
+	if id != "" {
+		connection, ok := store.Connection(id)
+		if !ok {
+			return connectionstore.Connection{}, fmt.Errorf("saved target %q does not exist", id)
+		}
+		return connection, nil
+	}
 	connection, ok := store.ActiveConnection()
 	if !ok {
-		return connectionstore.Connection{}, errNoActiveConnection
+		return connectionstore.Connection{}, errNoActiveTarget
 	}
 	return connection, nil
 }
@@ -56,7 +67,7 @@ func connectionRepository() (connectionstore.Repository, error) {
 func optionsForConnection(options globalOptions, connection connectionstore.Connection) globalOptions {
 	options.url = connection.URL
 	options.token = connection.Token
-	options.target = connection.Target
+	options.worker = connection.Target
 	return options
 }
 
@@ -93,7 +104,7 @@ func runConnect(ctx context.Context, arguments []string, output io.Writer) error
 
 func runStatus(ctx context.Context, output io.Writer) error {
 	connection, err := activeConnection()
-	if errors.Is(err, errNoActiveConnection) {
+	if errors.Is(err, errNoActiveTarget) {
 		return writeJSON(output, map[string]bool{"connected": false})
 	}
 	if err != nil {
@@ -111,19 +122,19 @@ func runList(ctx context.Context, ioStreams streams) error {
 	if err != nil {
 		return err
 	}
-	views := make([]connectionView, 0, len(store.Connections))
+	views := make([]targetView, 0, len(store.Connections))
 	for _, connection := range store.Connections {
 		views = append(views, inspectConnection(ctx, connection, connection.ID == store.Active))
 	}
 	if !isInteractiveInput(ioStreams.in) {
-		return writeJSON(ioStreams.out, map[string]interface{}{"connections": views})
+		return writeJSON(ioStreams.out, map[string]interface{}{"targets": views})
 	}
 	return selectConnection(ioStreams, repository, store, views)
 }
 
 func runRemove(arguments []string, ioStreams streams) error {
 	if len(arguments) > 1 {
-		return errors.New("usage: aremote remove [CONNECTION_ID]")
+		return errors.New("usage: aremote remove [TARGET_ID]")
 	}
 	repository, err := connectionRepository()
 	if err != nil {
@@ -139,7 +150,7 @@ func runRemove(arguments []string, ioStreams streams) error {
 	}
 	if id == "" {
 		if !isInteractiveInput(ioStreams.in) {
-			return errors.New("usage: aremote remove CONNECTION_ID")
+			return errors.New("usage: aremote remove TARGET_ID")
 		}
 		id, err = selectConnectionToRemove(ioStreams, store)
 		if err != nil {
@@ -148,7 +159,7 @@ func runRemove(arguments []string, ioStreams streams) error {
 	}
 	updated, removed := store.Remove(id)
 	if !removed {
-		return fmt.Errorf("saved connection %q does not exist", id)
+		return fmt.Errorf("saved target %q does not exist", id)
 	}
 	if err := repository.Save(updated); err != nil {
 		return err
@@ -208,7 +219,7 @@ func verifyTarget(ctx context.Context, connection connectionstore.Connection) (*
 	return nil, fmt.Errorf("target %q is not online", connection.Target)
 }
 
-func inspectConnection(ctx context.Context, connection connectionstore.Connection, active bool) connectionView {
+func inspectConnection(ctx context.Context, connection connectionstore.Connection, active bool) targetView {
 	info, err := verifyTarget(ctx, connection)
 	if err != nil {
 		return connectedView(connection, false, nil, err.Error())
@@ -216,11 +227,11 @@ func inspectConnection(ctx context.Context, connection connectionstore.Connectio
 	return connectedView(connection, active, info, "")
 }
 
-func connectedView(connection connectionstore.Connection, active bool, info *protocol.Hello, message string) connectionView {
-	return connectionView{
+func connectedView(connection connectionstore.Connection, active bool, info *protocol.Hello, message string) targetView {
+	return targetView{
 		ID:     connection.ID,
 		URL:    connection.URL,
-		Target: connection.Target,
+		Worker: connection.Target,
 		Note:   connection.Note,
 		Active: active,
 		Online: message == "",
@@ -245,9 +256,9 @@ func isInteractiveInput(input io.Reader) bool {
 	return ok && term.IsTerminal(int(file.Fd()))
 }
 
-func selectConnection(ioStreams streams, repository connectionstore.Repository, store connectionstore.Store, views []connectionView) error {
+func selectConnection(ioStreams streams, repository connectionstore.Repository, store connectionstore.Store, views []targetView) error {
 	if len(views) == 0 {
-		_, err := fmt.Fprintln(ioStreams.out, "No saved connections")
+		_, err := fmt.Fprintln(ioStreams.out, "No saved targets")
 		return err
 	}
 	for index, view := range views {
@@ -263,11 +274,11 @@ func selectConnection(ioStreams streams, repository connectionstore.Repository, 
 		if note == "" {
 			note = "(unnamed remote)"
 		}
-		if _, err := fmt.Fprintf(ioStreams.out, "%d. %s %s — %s @ %s — %s\n", index+1, marker, note, view.Target, view.URL, availability); err != nil {
+		if _, err := fmt.Fprintf(ioStreams.out, "%d. %s %s — %s @ %s [%s] — %s\n", index+1, marker, note, view.Worker, view.URL, view.ID, availability); err != nil {
 			return err
 		}
 	}
-	if _, err := fmt.Fprint(ioStreams.out, "Select a connection (Enter keeps the current target): "); err != nil {
+	if _, err := fmt.Fprint(ioStreams.out, "Select a target (Enter keeps the current target): "); err != nil {
 		return err
 	}
 	input := bufio.NewReader(ioStreams.in)
@@ -280,23 +291,23 @@ func selectConnection(ioStreams streams, repository connectionstore.Repository, 
 	}
 	index, err := strconv.Atoi(selected)
 	if err != nil || index < 1 || index > len(views) {
-		return errors.New("connection selection must be a listed number")
+		return errors.New("target selection must be a listed number")
 	}
 	view := views[index-1]
 	if !view.Online {
-		return fmt.Errorf("selected connection is offline: %s", view.Error)
+		return fmt.Errorf("selected target is offline: %s", view.Error)
 	}
 	store.Active = view.ID
 	if err := repository.Save(store); err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(ioStreams.out, "Selected %s\n", view.ID)
+	_, err = fmt.Fprintf(ioStreams.out, "Selected target %s\n", view.ID)
 	return err
 }
 
 func selectConnectionToRemove(ioStreams streams, store connectionstore.Store) (string, error) {
 	if len(store.Connections) == 0 {
-		return "", errors.New("no saved connection to remove")
+		return "", errors.New("no saved target to remove")
 	}
 	for index, connection := range store.Connections {
 		note := connection.Note
@@ -307,21 +318,21 @@ func selectConnectionToRemove(ioStreams streams, store connectionstore.Store) (s
 			return "", err
 		}
 	}
-	if _, err := fmt.Fprint(ioStreams.out, "Remove connection number (Enter cancels): "); err != nil {
+	if _, err := fmt.Fprint(ioStreams.out, "Remove target number (Enter cancels): "); err != nil {
 		return "", err
 	}
 	input := bufio.NewReader(ioStreams.in)
 	selected, err := input.ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
-		return "", fmt.Errorf("read connection selection: %w", err)
+		return "", fmt.Errorf("read target selection: %w", err)
 	}
 	selected = strings.TrimSpace(selected)
 	if selected == "" {
-		return "", errors.New("connection removal cancelled")
+		return "", errors.New("target removal cancelled")
 	}
 	index, err := strconv.Atoi(selected)
 	if err != nil || index < 1 || index > len(store.Connections) {
-		return "", errors.New("connection selection must be a listed number")
+		return "", errors.New("target selection must be a listed number")
 	}
 	if _, err := fmt.Fprint(ioStreams.out, "Confirm removal (y/N): "); err != nil {
 		return "", err
@@ -331,7 +342,7 @@ func selectConnectionToRemove(ioStreams streams, store connectionstore.Store) (s
 		return "", fmt.Errorf("read removal confirmation: %w", err)
 	}
 	if strings.TrimSpace(strings.ToLower(confirmed)) != "y" {
-		return "", errors.New("connection removal cancelled")
+		return "", errors.New("target removal cancelled")
 	}
 	return store.Connections[index-1].ID, nil
 }

@@ -11,6 +11,7 @@ import (
 
 	"agent-remote/internal/buildinfo"
 	remoteclient "agent-remote/internal/client"
+	"agent-remote/internal/connectionstore"
 )
 
 const mcpProtocolVersion = "2025-11-25"
@@ -60,17 +61,18 @@ type mcpToolResult struct {
 }
 
 type mcpServer struct {
-	url           string
-	token         string
-	defaultTarget string
-	initialized   bool
+	url                string
+	token              string
+	defaultTarget      string
+	resolveConnections bool
+	initialized        bool
 }
 
-func runMCP(ctx context.Context, options globalOptions, arguments []string, ioStreams streams) error {
+func runMCP(ctx context.Context, arguments []string, ioStreams streams) error {
 	if len(arguments) != 0 {
-		return errors.New("usage: aremote [global flags] mcp")
+		return errors.New("usage: aremote mcp")
 	}
-	server := mcpServer{url: options.url, token: options.token, defaultTarget: options.target}
+	server := mcpServer{resolveConnections: true}
 	return server.serve(ctx, ioStreams.in, ioStreams.out)
 }
 
@@ -225,22 +227,32 @@ func (s *mcpServer) executeTool(ctx context.Context, name string, arguments map[
 	}
 	switch toolName {
 	case "targets":
-		client, err := s.remoteClient()
+		return s.savedTargets()
+	case "workers":
+		connection, err := s.connection(arguments)
+		if err != nil {
+			return nil, err
+		}
+		client, err := remoteClient(connection)
 		if err != nil {
 			return nil, err
 		}
 		return client.Targets(ctx)
 	case "read", "find", "bash", "write", "edit":
-		client, err := s.remoteClient()
+		connection, err := s.connection(arguments)
 		if err != nil {
 			return nil, err
 		}
-		target := mcpTarget(arguments, s.defaultTarget)
+		client, err := remoteClient(connection)
+		if err != nil {
+			return nil, err
+		}
+		worker := mcpWorker(arguments, connection.Target)
 		input, err := mcpToolInput(toolName, arguments)
 		if err != nil {
 			return nil, err
 		}
-		result, err := client.Call(ctx, target, toolName, input)
+		result, err := client.Call(ctx, worker, toolName, input)
 		if err != nil {
 			return nil, err
 		}
@@ -253,6 +265,8 @@ func mcpGatewayToolName(name string) (string, bool) {
 	switch name {
 	case "remote_targets":
 		return "targets", true
+	case "remote_workers":
+		return "workers", true
 	case "remote_read":
 		return "read", true
 	case "remote_find":
@@ -268,22 +282,60 @@ func mcpGatewayToolName(name string) (string, bool) {
 	}
 }
 
-func (s *mcpServer) remoteClient() (*remoteclient.Client, error) {
-	return remoteclient.New(remoteclient.Config{BaseURL: s.url, Token: s.token})
+func (s *mcpServer) connection(arguments map[string]interface{}) (connectionstore.Connection, error) {
+	if !s.resolveConnections {
+		return connectionstore.Connection{URL: s.url, Token: s.token, Target: s.defaultTarget}, nil
+	}
+	targetID := mcpTargetID(arguments)
+	return selectedConnection(targetID)
 }
 
-func mcpTarget(arguments map[string]interface{}, fallback string) string {
-	target, ok := arguments["target"].(string)
-	if !ok || strings.TrimSpace(target) == "" {
+func (s *mcpServer) savedTargets() (interface{}, error) {
+	if !s.resolveConnections {
+		return []interface{}{}, nil
+	}
+	repository, err := connectionRepository()
+	if err != nil {
+		return nil, err
+	}
+	store, err := repository.Load()
+	if err != nil {
+		return nil, err
+	}
+	targets := make([]map[string]interface{}, 0, len(store.Connections))
+	for _, connection := range store.Connections {
+		targets = append(targets, map[string]interface{}{
+			"id": connection.ID, "url": connection.URL, "worker": connection.Target,
+			"note": connection.Note, "active": connection.ID == store.Active,
+		})
+	}
+	return targets, nil
+}
+
+func remoteClient(connection connectionstore.Connection) (*remoteclient.Client, error) {
+	return remoteclient.New(remoteclient.Config{BaseURL: connection.URL, Token: connection.Token})
+}
+
+func mcpWorker(arguments map[string]interface{}, fallback string) string {
+	worker, ok := arguments["worker"].(string)
+	if !ok || strings.TrimSpace(worker) == "" {
 		return fallback
 	}
-	return target
+	return worker
+}
+
+func mcpTargetID(arguments map[string]interface{}) string {
+	targetID, ok := arguments["target"].(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(targetID)
 }
 
 func mcpToolInput(name string, arguments map[string]interface{}) (map[string]interface{}, error) {
 	input := make(map[string]interface{}, len(arguments))
 	for key, value := range arguments {
-		if key != "target" {
+		if key != "target" && key != "worker" {
 			input[key] = value
 		}
 	}
@@ -373,12 +425,13 @@ func mcpFailure(id json.RawMessage, code int, message string, data interface{}) 
 
 func mcpTools() []mcpTool {
 	return []mcpTool{
-		mcpToolDefinition("remote_targets", "List the remote Gateway and connected remote Workers. No arguments are required.", map[string]interface{}{"type": "object", "additionalProperties": false}),
-		mcpToolDefinition("remote_read", "Read a text or binary file from the remote Gateway or Worker, never from the local machine.", objectSchema([]string{"path"}, map[string]interface{}{"path": stringSchema("Remote file path."), "target": stringSchema("Optional remote Worker ID; defaults to the configured target."), "offset": integerSchema("Optional first line, starting at 1."), "limit": integerSchema("Optional maximum number of lines.")})),
-		mcpToolDefinition("remote_find", "Find files and directories beneath the remote workspace root, never on the local machine.", objectSchema(nil, map[string]interface{}{"query": stringSchema("Optional search text."), "max_results": integerSchema("Optional maximum number of matches."), "target": stringSchema("Optional remote Worker ID; defaults to the configured target.")})),
-		mcpToolDefinition("remote_bash", "Execute a non-interactive shell command on the remote Gateway or Worker, never in the local workspace. Interactive terminals are available only through the CLI --tty mode.", objectSchema([]string{"command"}, map[string]interface{}{"command": stringSchema("Shell command to execute remotely."), "timeout": numberSchema("Optional remote timeout in seconds."), "encoding": stringSchema("Optional remote output encoding, for example gb18030."), "target": stringSchema("Optional remote Worker ID; defaults to the configured target.")})),
-		mcpToolDefinition("remote_write", "Replace a file on the remote Gateway or Worker, never on the local machine.", objectSchema([]string{"path", "content"}, map[string]interface{}{"path": stringSchema("Remote file path."), "content": stringSchema("Complete UTF-8 file content."), "target": stringSchema("Optional remote Worker ID; defaults to the configured target.")})),
-		mcpToolDefinition("remote_edit", "Apply exact text replacements to a file on the remote Gateway or Worker, never on the local machine.", objectSchema([]string{"path", "edits"}, map[string]interface{}{"path": stringSchema("Remote file path."), "edits": map[string]interface{}{"type": "array", "description": "Replacement objects with oldText and newText.", "items": objectSchema([]string{"oldText", "newText"}, map[string]interface{}{"oldText": stringSchema("Text to replace."), "newText": stringSchema("Replacement text.")})}, "target": stringSchema("Optional remote Worker ID; defaults to the configured target.")})),
+		mcpToolDefinition("remote_targets", "List saved agent-remote targets. No arguments are required.", map[string]interface{}{"type": "object", "additionalProperties": false}),
+		mcpToolDefinition("remote_workers", "List the Gateway and connected Workers for a saved target.", objectSchema(nil, map[string]interface{}{"target": savedTargetSchema()})),
+		mcpToolDefinition("remote_read", "Read a text or binary file from the remote Gateway or Worker, never from the local machine.", mcpRemoteToolSchema([]string{"path"}, map[string]interface{}{"path": stringSchema("Remote file path."), "offset": integerSchema("Optional first line, starting at 1."), "limit": integerSchema("Optional maximum number of lines.")})),
+		mcpToolDefinition("remote_find", "Find files and directories beneath the remote workspace root, never on the local machine.", mcpRemoteToolSchema(nil, map[string]interface{}{"query": stringSchema("Optional search text."), "max_results": integerSchema("Optional maximum number of matches.")})),
+		mcpToolDefinition("remote_bash", "Execute a non-interactive shell command on the remote Gateway or Worker, never in the local workspace. Interactive terminals are available only through the CLI --tty mode.", mcpRemoteToolSchema([]string{"command"}, map[string]interface{}{"command": stringSchema("Shell command to execute remotely."), "timeout": numberSchema("Optional remote timeout in seconds."), "encoding": stringSchema("Optional remote output encoding, for example gb18030.")})),
+		mcpToolDefinition("remote_write", "Replace a file on the remote Gateway or Worker, never on the local machine.", mcpRemoteToolSchema([]string{"path", "content"}, map[string]interface{}{"path": stringSchema("Remote file path."), "content": stringSchema("Complete UTF-8 file content.")})),
+		mcpToolDefinition("remote_edit", "Apply exact text replacements to a file on the remote Gateway or Worker, never on the local machine.", mcpRemoteToolSchema([]string{"path", "edits"}, map[string]interface{}{"path": stringSchema("Remote file path."), "edits": map[string]interface{}{"type": "array", "description": "Replacement objects with oldText and newText.", "items": objectSchema([]string{"oldText", "newText"}, map[string]interface{}{"oldText": stringSchema("Text to replace."), "newText": stringSchema("Replacement text.")})}})),
 	}
 }
 
@@ -392,6 +445,16 @@ func objectSchema(required []string, properties map[string]interface{}) map[stri
 		schema["required"] = required
 	}
 	return schema
+}
+
+func mcpRemoteToolSchema(required []string, properties map[string]interface{}) map[string]interface{} {
+	properties["target"] = savedTargetSchema()
+	properties["worker"] = stringSchema("Optional Worker ID; defaults to the saved target Worker.")
+	return objectSchema(required, properties)
+}
+
+func savedTargetSchema() map[string]string {
+	return stringSchema("Optional saved target ID; defaults to the active target.")
 }
 
 func stringSchema(description string) map[string]string {
