@@ -1,8 +1,11 @@
 package tool
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"mime"
 	"os"
 	"path/filepath"
@@ -10,7 +13,10 @@ import (
 	"unicode/utf8"
 )
 
-const maxReadLines = 2000
+const (
+	maxReadLines       = 2000
+	binaryDetectBuffer = 32 * 1024
+)
 
 type readInput struct {
 	Path   string `json:"path"`
@@ -46,21 +52,64 @@ func (s *Service) executeRead(rawInput []byte) (readResult, error) {
 	if err != nil {
 		return readResult{}, err
 	}
-	content, err := os.ReadFile(absolute)
+	file, err := os.Open(absolute)
 	if err != nil {
-		return readResult{}, WrapError("read_failed", fmt.Sprintf("read %s", input.Path), err)
+		return readResult{}, WrapError("read_failed", fmt.Sprintf("open %s", input.Path), err)
 	}
-	if isBinary(content) {
-		return readBinaryResult(input.Path, absolute, content), nil
+	defer file.Close()
+	if isBinaryFile(file) {
+		return s.readBinaryResult(input.Path, absolute, file)
 	}
-	return s.readTextResult(input, string(content))
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return readResult{}, WrapError("read_failed", fmt.Sprintf("rewind %s", input.Path), err)
+	}
+	return s.readTextResult(input, file)
 }
 
-func isBinary(content []byte) bool {
-	return !utf8.Valid(content) || strings.IndexByte(string(content), 0) >= 0
+func isBinaryFile(file *os.File) bool {
+	buffer := make([]byte, binaryDetectBuffer+utf8.UTFMax)
+	pending := 0
+	for {
+		read, err := file.Read(buffer[pending:binaryDetectBuffer])
+		data := buffer[:pending+read]
+		for len(data) > 0 {
+			if data[0] == 0 {
+				return true
+			}
+			if !utf8.FullRune(data) && err == nil {
+				copy(buffer, data)
+				pending = len(data)
+				break
+			}
+			_, size := utf8.DecodeRune(data)
+			if size == 1 && data[0] >= utf8.RuneSelf {
+				return true
+			}
+			data = data[size:]
+			pending = 0
+		}
+		if err == io.EOF {
+			return pending != 0
+		}
+		if err != nil {
+			return true
+		}
+	}
 }
 
-func readBinaryResult(displayPath, absolute string, content []byte) readResult {
+func (s *Service) readBinaryResult(displayPath, absolute string, file *os.File) (readResult, error) {
+	info, err := file.Stat()
+	if err != nil {
+		return readResult{}, WrapError("read_failed", fmt.Sprintf("stat %s", displayPath), err)
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return readResult{}, WrapError("read_failed", fmt.Sprintf("rewind %s", displayPath), err)
+	}
+	maxInputBytes := s.maxReadBytes / 4 * 3
+	content, err := io.ReadAll(io.LimitReader(file, int64(maxInputBytes)))
+	if err != nil {
+		return readResult{}, WrapError("read_failed", fmt.Sprintf("read %s", displayPath), err)
+	}
 	mimeType := mime.TypeByExtension(strings.ToLower(filepath.Ext(absolute)))
 	if mimeType == "" {
 		mimeType = "application/octet-stream"
@@ -70,67 +119,107 @@ func readBinaryResult(displayPath, absolute string, content []byte) readResult {
 		ContentBase64: base64.StdEncoding.EncodeToString(content),
 		Encoding:      "base64",
 		MIMEType:      mimeType,
-	}
+		Truncated:     info.Size() > int64(len(content)),
+	}, nil
 }
 
-func (s *Service) readTextResult(input readInput, content string) (readResult, error) {
-	lines := strings.Split(content, "\n")
-	start := 0
+func (s *Service) readTextResult(input readInput, file io.Reader) (readResult, error) {
+	startLine := 1
 	if input.Offset != nil {
-		start = *input.Offset - 1
+		startLine = *input.Offset
 	}
-	if start >= len(lines) {
-		return readResult{}, NewError("offset_out_of_range", fmt.Sprintf("offset %d is beyond end of file (%d lines total)", start+1, len(lines)))
+	requestedLines := maxReadLines
+	if input.Limit != nil && *input.Limit < requestedLines {
+		requestedLines = *input.Limit
 	}
-	requestedEnd := len(lines)
-	if input.Limit != nil && start+*input.Limit < requestedEnd {
-		requestedEnd = start + *input.Limit
+	reader := bufio.NewReader(file)
+	content := bytes.Buffer{}
+	totalLines, outputLines, lineNumber := 1, 0, 1
+	selectionFinished := false
+	for {
+		line, ended, reachedEOF, err := readLineWithinBytes(reader, s.maxReadBytes)
+		if err != nil {
+			return readResult{}, WrapError("read_failed", fmt.Sprintf("read %s", input.Path), err)
+		}
+		if lineNumber >= startLine && lineNumber < startLine+requestedLines && !selectionFinished {
+			separatorBytes := 0
+			if outputLines > 0 {
+				separatorBytes = 1
+			}
+			if line.totalBytes+separatorBytes <= s.maxReadBytes-content.Len() {
+				if outputLines > 0 {
+					content.WriteByte('\n')
+				}
+				content.Write(line.prefix)
+				outputLines++
+			} else if outputLines == 0 {
+				content.WriteString(truncateUTF8(string(line.prefix), s.maxReadBytes))
+				content.WriteString("\n\n[First line was truncated by the byte limit.]")
+				outputLines++
+				selectionFinished = true
+			} else {
+				selectionFinished = true
+			}
+		}
+		if ended {
+			totalLines++
+			lineNumber++
+		}
+		if reachedEOF {
+			break
+		}
 	}
-	end := requestedEnd
-	if end-start > maxReadLines {
-		end = start + maxReadLines
+	if startLine > totalLines {
+		return readResult{}, NewError("offset_out_of_range", fmt.Sprintf("offset %d is beyond end of file (%d lines total)", startLine, totalLines))
 	}
-	selected, outputLines := fitLinesWithinBytes(lines[start:end], s.maxReadBytes)
-	actualEnd := start + outputLines
-	result := readResult{
-		Path:       input.Path,
-		Content:    selected,
-		Encoding:   "utf-8",
-		StartLine:  start + 1,
-		EndLine:    actualEnd,
-		TotalLines: len(lines),
-		Truncated:  actualEnd < len(lines),
-	}
-	if actualEnd < len(lines) {
-		result.NextOffset = actualEnd + 1
-		result.Content += fmt.Sprintf("\n\n[Showing lines %d-%d of %d. Use offset=%d to continue.]", start+1, actualEnd, len(lines), result.NextOffset)
+	endLine := startLine + outputLines - 1
+	result := readResult{Path: input.Path, Content: content.String(), Encoding: "utf-8", StartLine: startLine, EndLine: endLine, TotalLines: totalLines, Truncated: endLine < totalLines}
+	if result.Truncated {
+		result.NextOffset = endLine + 1
+		result.Content += fmt.Sprintf("\n\n[Showing lines %d-%d of %d. Use offset=%d to continue.]", startLine, endLine, totalLines, result.NextOffset)
 	}
 	return result, nil
 }
 
-func fitLinesWithinBytes(lines []string, maxBytes int) (string, int) {
-	if len(lines) == 0 {
-		return "", 0
-	}
-	total := 0
-	count := 0
-	for index, line := range lines {
-		lineBytes := len([]byte(line))
-		separatorBytes := 0
-		if index > 0 {
-			separatorBytes = 1
+type boundedLine struct {
+	prefix     []byte
+	totalBytes int
+}
+
+func readLineWithinBytes(reader *bufio.Reader, maxBytes int) (boundedLine, bool, bool, error) {
+	line := boundedLine{prefix: make([]byte, 0, maxBytes)}
+	for {
+		fragment, err := reader.ReadSlice('\n')
+		if len(fragment) > 0 {
+			if fragment[len(fragment)-1] == '\n' {
+				fragment = fragment[:len(fragment)-1]
+				line.totalBytes += len(fragment)
+				appendLinePrefix(&line.prefix, fragment, maxBytes)
+				return line, true, false, nil
+			}
+			line.totalBytes += len(fragment)
+			appendLinePrefix(&line.prefix, fragment, maxBytes)
 		}
-		if total+separatorBytes+lineBytes > maxBytes {
-			break
+		switch err {
+		case nil, bufio.ErrBufferFull:
+			continue
+		case io.EOF:
+			return line, false, true, nil
+		default:
+			return boundedLine{}, false, false, err
 		}
-		total += separatorBytes + lineBytes
-		count++
 	}
-	if count == 0 {
-		prefix := truncateUTF8(lines[0], maxBytes)
-		return prefix + "\n\n[First line was truncated by the byte limit.]", 1
+}
+
+func appendLinePrefix(prefix *[]byte, fragment []byte, maxBytes int) {
+	available := maxBytes - len(*prefix)
+	if available <= 0 {
+		return
 	}
-	return strings.Join(lines[:count], "\n"), count
+	if len(fragment) > available {
+		fragment = fragment[:available]
+	}
+	*prefix = append(*prefix, fragment...)
 }
 
 func truncateUTF8(value string, maxBytes int) string {
