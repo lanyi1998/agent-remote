@@ -129,10 +129,10 @@ func runList(ctx context.Context, ioStreams streams) error {
 	if !isInteractiveInput(ioStreams.in) {
 		return writeJSON(ioStreams.out, map[string]interface{}{"targets": views})
 	}
-	return selectConnection(ioStreams, repository, store, views)
+	return selectConnection(ctx, ioStreams, repository, store, views)
 }
 
-func runRemove(arguments []string, ioStreams streams) error {
+func runRemove(ctx context.Context, arguments []string, ioStreams streams) error {
 	if len(arguments) > 1 {
 		return errors.New("usage: aremote remove [TARGET_ID]")
 	}
@@ -152,7 +152,7 @@ func runRemove(arguments []string, ioStreams streams) error {
 		if !isInteractiveInput(ioStreams.in) {
 			return errors.New("usage: aremote remove TARGET_ID")
 		}
-		id, err = selectConnectionToRemove(ioStreams, store)
+		id, err = selectConnectionToRemove(ctx, ioStreams, store)
 		if err != nil {
 			return err
 		}
@@ -281,7 +281,7 @@ func isInteractiveInput(input io.Reader) bool {
 	return ok && term.IsTerminal(int(file.Fd()))
 }
 
-func selectConnection(ioStreams streams, repository connectionstore.Repository, store connectionstore.Store, views []targetView) error {
+func selectConnection(ctx context.Context, ioStreams streams, repository connectionstore.Repository, store connectionstore.Store, views []targetView) error {
 	if len(views) == 0 {
 		_, err := fmt.Fprintln(ioStreams.out, "No saved targets")
 		return err
@@ -307,7 +307,7 @@ func selectConnection(ioStreams streams, repository connectionstore.Repository, 
 		return err
 	}
 	input := bufio.NewReader(ioStreams.in)
-	selected, err := input.ReadString('\n')
+	selected, err := readSelection(ctx, input)
 	if err != nil && !errors.Is(err, io.EOF) {
 		return fmt.Errorf("read connection selection: %w", err)
 	}
@@ -330,7 +330,7 @@ func selectConnection(ioStreams streams, repository connectionstore.Repository, 
 	return err
 }
 
-func selectConnectionToRemove(ioStreams streams, store connectionstore.Store) (string, error) {
+func selectConnectionToRemove(ctx context.Context, ioStreams streams, store connectionstore.Store) (string, error) {
 	if len(store.Connections) == 0 {
 		return "", errors.New("no saved target to remove")
 	}
@@ -347,7 +347,7 @@ func selectConnectionToRemove(ioStreams streams, store connectionstore.Store) (s
 		return "", err
 	}
 	input := bufio.NewReader(ioStreams.in)
-	selected, err := input.ReadString('\n')
+	selected, err := readSelection(ctx, input)
 	if err != nil && !errors.Is(err, io.EOF) {
 		return "", fmt.Errorf("read target selection: %w", err)
 	}
@@ -362,7 +362,7 @@ func selectConnectionToRemove(ioStreams streams, store connectionstore.Store) (s
 	if _, err := fmt.Fprint(ioStreams.out, "Confirm removal (y/N): "); err != nil {
 		return "", err
 	}
-	confirmed, err := input.ReadString('\n')
+	confirmed, err := readSelection(ctx, input)
 	if err != nil && !errors.Is(err, io.EOF) {
 		return "", fmt.Errorf("read removal confirmation: %w", err)
 	}
@@ -370,4 +370,38 @@ func selectConnectionToRemove(ioStreams streams, store connectionstore.Store) (s
 		return "", errors.New("target removal cancelled")
 	}
 	return store.Connections[index-1].ID, nil
+}
+
+type selectionReadResult struct {
+	value string
+	err   error
+}
+
+func readSelection(ctx context.Context, input *bufio.Reader) (string, error) {
+	result := make(chan selectionReadResult, 1)
+	go func() {
+		var selected strings.Builder
+		for {
+			character, _, err := input.ReadRune()
+			if err != nil {
+				result <- selectionReadResult{value: selected.String(), err: err}
+				return
+			}
+			if character == '\x03' {
+				result <- selectionReadResult{err: context.Canceled}
+				return
+			}
+			if character == '\n' {
+				result <- selectionReadResult{value: selected.String()}
+				return
+			}
+			selected.WriteRune(character)
+		}
+	}()
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	case read := <-result:
+		return read.value, read.err
+	}
 }

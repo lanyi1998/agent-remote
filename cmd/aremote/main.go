@@ -96,7 +96,7 @@ func run(arguments []string, ioStreams streams) error {
 	case "list":
 		return runList(ctx, ioStreams)
 	case "remove":
-		return runRemove(commandArguments, ioStreams)
+		return runRemove(ctx, commandArguments, ioStreams)
 	case "rename":
 		return runRename(commandArguments, ioStreams.out)
 	case "refresh":
@@ -468,6 +468,9 @@ func writeJSON(output io.Writer, value interface{}) error {
 func exitCode(err error, errorOutput io.Writer) int {
 	if err == nil {
 		return 0
+	}
+	if errors.Is(err, context.Canceled) {
+		return 130
 	}
 	var commandExit *exitError
 	if errors.As(err, &commandExit) {
